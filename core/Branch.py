@@ -7,6 +7,23 @@ import pylcs as LCS
 class BranchSeq:
 
     @staticmethod
+    def make_id2char_dict(pt_root_ids):
+        # Printable unicode blocks:
+        # 19968-40959: CJK Unified Ideographs
+        coding_block_1 = np.arange(19968, 40960, 1)
+
+        # 44032-55215: Hangul Syllables
+        coding_block_2 = np.arange(44032, 55216, 1)
+
+        # 131072-173791: CJK Unified Ideographs Extension B
+        coding_block_3 = np.arange(131072, 173792, 1)
+        code_points = np.concatenate([coding_block_1, coding_block_2, coding_block_3])
+
+        pt_root_id_to_char = {pt_root_id: chr(code_points[i]) for i, pt_root_id in enumerate(pt_root_ids)}
+        char_to_pt_root_id = {v: k for k, v in pt_root_id_to_char.items()}
+        return pt_root_id_to_char, char_to_pt_root_id
+
+    @staticmethod
     def collapse_path(path, graph):
         if not path:
             return []
@@ -87,7 +104,7 @@ class BranchSeq:
 
         return chosen_columns
     
-    def __init__(self, path, graph, id):
+    def __init__(self, path, graph, id, valid_types={'23P', '4P', '5P-IT', '5P-ET', '5P-NP', '6P-IT', '6P-CT'}):
 
         self.cell_id = graph.graph['cell_id']
         self.branch_id = id
@@ -103,6 +120,8 @@ class BranchSeq:
             cell_type_key = 'cell_type_pre'
         
         for node in path:
+            if graph.nodes[node][cell_type_key] not in valid_types:
+                continue
             self.syn_id_sequence['raw'].append(graph.nodes[node]['syn_id'])
             self.syn_pos_sequence['raw'].append(graph.nodes[node]['pos'])
             self.cell_id_sequence['raw'].append(graph.nodes[node]['pre_cell_id'])
@@ -110,6 +129,8 @@ class BranchSeq:
         
         collapsed_path = BranchSeq.collapse_path(path, graph)
         for node in collapsed_path:
+            if graph.nodes[node][cell_type_key] not in valid_types:
+                continue
             self.syn_id_sequence['collapsed'].append(graph.nodes[node]['syn_id'])
             self.syn_pos_sequence['collapsed'].append(graph.nodes[node]['pos'])
             self.cell_id_sequence['collapsed'].append(graph.nodes[node]['pre_cell_id'])

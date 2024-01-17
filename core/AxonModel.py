@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
-from Skeleton import Skeleton
+from .Skeleton import Skeleton
 
 class AxonModel(Skeleton):
 
@@ -26,7 +26,7 @@ class AxonModel(Skeleton):
         self.fit_gmm()
 
     def fit_gmm(self, min_path_length=4):
-        paths = self.get_paths(smoothed=True, duplicate_tail=True)
+        paths = self.get_paths(smoothed=True, exc=False, duplicate_tail=True)
         all_positions = []
         all_means = []
         all_precisions = []
@@ -38,7 +38,9 @@ class AxonModel(Skeleton):
             elif len(path_positions) == 1:
                 precision = np.diag(1/(np.array(3*[self.single_syn_std]))**2)
             else:
-                precision = np.diag(1/np.var(path_positions, axis=0))
+                variance = np.var(path_positions, axis=0)
+                variance[variance == 0] = self.single_syn_std**2
+                precision = np.diag(1/variance)
             
             precision[np.isinf(precision)] = 1/(self.single_syn_std**2)
             all_positions.append(path_positions)
@@ -49,5 +51,7 @@ class AxonModel(Skeleton):
         gmm = GaussianMixture(n_components=len(all_means), covariance_type='full', 
                 means_init=np.array(all_means),
                 precisions_init=np.array(all_precisions))
+        if all_positions.shape[0] == 1:
+            all_positions = np.concatenate([all_positions, all_positions], axis=0)
         gmm.fit(all_positions)
         self.gmm = gmm

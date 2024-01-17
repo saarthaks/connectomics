@@ -19,7 +19,10 @@ class Skeleton:
 
         for component in components:
             component = list(component)
-            leaf_nodes = [node for node in component if G.degree(node) == 1]
+            leaf_nodes = [node for node in component if G.degree(node) <= 1]
+            # if len(leaf_nodes) == 0:
+            #     print(component, [G.degree(node) for node in component])
+                
             distances = [np.linalg.norm(G.nodes[leaf_node]['pos'] - soma_pos) for leaf_node in leaf_nodes]
 
             closest_leaf_node = leaf_nodes[np.argmin(distances)]
@@ -159,7 +162,7 @@ class Skeleton:
         leaves = [node for node, degree in tree.out_degree() if degree == 0]
 
         try:
-            if leaves[0]['cell_type']:
+            if tree.nodes[leaves[0]]['cell_type']:
                 key = 'cell_type'
         except KeyError:
             key = 'cell_type_pre' if pre else 'cell_type_post'
@@ -186,6 +189,46 @@ class Skeleton:
                 tree.remove_node(node)
 
         return tree
+    
+    @staticmethod
+    def extract_paths_from_graph(graph, duplicate_tail=False):
+
+        # first get all leaves
+        leaves = [node for node, degree in graph.out_degree() if degree == 0]
+
+        # for each leaf, walk to its parent until you reach a node with no parents
+        # save a list of (node, number of children) tuples
+        paths = set()
+        for leaf in leaves:
+            path = [(leaf, 0)]
+            current_node = leaf
+            while len(list(graph.predecessors(current_node))) > 0:
+                parent = list(graph.predecessors(current_node))[0]
+                num_siblings = len(list(graph.successors(parent)))
+                path.append((parent, num_siblings))
+                current_node = parent
+
+            # reverse the path so that it goes from soma to leaf, then skip soma node
+            path.reverse()
+            path = path[1:]
+
+            # split the path at nodes with more than one child, duplicating the node in both lists
+            split_paths = []
+            current_path = []
+            for node, num_children in path:
+                current_path.append(node)
+                if num_children > 1 or num_children == 0:
+                    split_paths.append(tuple(current_path))
+                    if duplicate_tail:
+                        current_path = [node]
+                    else:
+                        current_path = []
+
+            paths.update(split_paths)
+        
+        # remove paths that are empty
+        paths = [path for path in paths if len(path) > 0]
+        return paths
 
     def __init__(self, cell_info, syn_group, syn_k=6, soma_k=12):
         
@@ -204,6 +247,7 @@ class Skeleton:
 
         self.mst = self.skeletonize(cell_info, syn_group, syn_k, soma_k)
         self.smooth_mst = None
+        self.emst = None
 
     def skeletonize(self, cell_info, syn_group, syn_k, soma_k):
 
@@ -215,10 +259,10 @@ class Skeleton:
         cell_id = cell_info['pt_root_id'].values[0]
         cell_type = cell_info['cell_type'].values[0]
         soma_xyz = np.array(cell_info[['pt_x', 'pt_y', 'pt_z']].values)
-        soma_xyz = np.matmul(soma_xyz, np.diag([4/1000, 4/1000, 40/1000]))
+        # soma_xyz = np.matmul(soma_xyz, np.diag([4/1000, 4/1000, 40/1000]))
 
         # Add the soma location to the synapse table
-        soma_df = pd.DataFrame(soma_xyz).T
+        soma_df = pd.DataFrame(soma_xyz)
         soma_df.columns = ['ctr_pt_x', 'ctr_pt_y', 'ctr_pt_z']
         soma_df.index = [-1]
         synapses_w_soma = pd.concat([synapses, soma_df])
@@ -231,7 +275,10 @@ class Skeleton:
         soma_distances, soma_indices = kd_tree.kneighbors(soma_xyz.reshape(1, -1), n_neighbors=soma_k)
 
         # Subtract the "radius" of the soma from the soma distances
-        soma_radius = soma_distances[0][1]
+        if soma_distances.shape[1] > 1:
+            soma_radius = soma_distances[0][1]
+        else:
+            soma_radius = 3
         soma_distances = soma_distances - soma_radius 
 
         # Create a graph from the synapse group
@@ -305,11 +352,15 @@ class Skeleton:
             DG.remove_node(node)
             for child in children:
                 DG.add_edge(parent, child)
+        
+        self.emst = DG
         return DG
     
-    def get_paths(self, smoothed=True, duplicate_tail=False):
+    def get_paths(self, smoothed=True, exc=True, duplicate_tail=False):
 
-        if smoothed:
+        if exc:
+            graph = self.emst
+        elif smoothed:
             graph = self.smooth_mst
         else:
             graph = self.mst

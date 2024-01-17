@@ -3,14 +3,17 @@ import numpy as np
 import pandas as pd
 from time import sleep
 from requests.exceptions import HTTPError
+from tqdm import tqdm
 
 class CAVE:
 
     @staticmethod
     def get_cell_type(pt_root_id, cell_df):
         try:
-            return cell_df.loc[pt_root_id, 'cell_type']
+            return cell_df[cell_df['pt_root_id'] == pt_root_id]['cell_type'].to_list()[0]
         except KeyError:
+            return "Unknown"
+        except IndexError:
             return "Unknown"
         
     @staticmethod
@@ -63,7 +66,7 @@ class CAVE:
         position_df = syn_df['ctr_pt_position'].apply(pd.Series)
         position_df.columns = ['ctr_pt_x', 'ctr_pt_y', 'ctr_pt_z']
 
-        syn_df = syn_df.drop('ctr_pt_position', axis=1)
+        # syn_df = syn_df.drop('ctr_pt_position', axis=1)
         syn_df = pd.concat([syn_df, position_df], axis=1)
 
         return syn_df
@@ -106,7 +109,7 @@ class CAVE:
 
     def download_input_synapses_list(self, post_pt_root_ids, cell_df=None, timeout=600, chunk_size=150):
         num_chunks = int(np.ceil((len(post_pt_root_ids))/chunk_size))
-        for chunk in range(num_chunks):
+        for chunk in tqdm(range(num_chunks)):
             chunk_ids = post_pt_root_ids[chunk*chunk_size:(chunk+1)*chunk_size]
             try:
                 syn_df = self.download_input_synapses(chunk_ids, cell_df)
@@ -114,11 +117,12 @@ class CAVE:
                 print(f"Chunk {chunk} failed, retrying")
                 sleep(timeout)
                 syn_df = self.download_input_synapses(chunk_ids, cell_df)
-            yield syn_df, chunk_ids
+            synapses_grouped = syn_df.groupby('post_pt_root_id')
+            yield synapses_grouped
 
     def download_output_synapses_list(self, pre_pt_root_ids, cell_df=None, timeout=600, chunk_size=750):
         num_chunks = int(np.ceil((len(pre_pt_root_ids))/chunk_size))
-        for chunk in range(num_chunks):
+        for chunk in tqdm(range(num_chunks)):
             chunk_ids = pre_pt_root_ids[chunk*chunk_size:(chunk+1)*chunk_size]
             try:
                 syn_df = self.download_output_synapses(chunk_ids, cell_df)
@@ -126,4 +130,5 @@ class CAVE:
                 print(f"Chunk {chunk} failed, retrying")
                 sleep(timeout)
                 syn_df = self.download_output_synapses(chunk_ids, cell_df)
-            yield syn_df, chunk_ids
+            synapses_grouped = syn_df.groupby('pre_pt_root_id')
+            yield synapses_grouped
