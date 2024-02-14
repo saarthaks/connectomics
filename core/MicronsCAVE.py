@@ -166,4 +166,4 @@ class CAVE:
         sk_df = sk_df.rename(columns={'id': 'syn_id'})
         sk_csgraph = nrn.skeleton.csgraph
 
-        return sk_df, sk_csgraph
+        return sk_df, sk_csgraph, root_id
