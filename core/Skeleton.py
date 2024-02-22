@@ -3,6 +3,10 @@ import pandas as pd
 from copy import deepcopy
 import networkx as nx
 from sklearn.neighbors import NearestNeighbors
+from scipy.sparse.csgraph import breadth_first_order
+from scipy.sparse import csr_matrix
+import pickle
+
 
 class Skeleton:
 
@@ -229,6 +233,64 @@ class Skeleton:
         # remove paths that are empty
         paths = [path for path in paths if len(path) > 0]
         return paths
+    
+    @staticmethod
+    def reconstruct_graph(df, csgraph, root_id):
+        '''
+        This function is used to prune the csgraph created by the skeleton
+        '''
+        valid_ids = set(df['skeleton_id'])
+        num_nodes = csgraph.shape[0]
+        node_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted(valid_ids.union({root_id})))}
+        rows = []
+        cols = []
+        data = []
+        order, predecessors = breadth_first_order(csgraph, i_start=root_id, directed=False, return_predecessors=True)
+        for old_id in range(num_nodes):
+            if old_id in valid_ids or old_id == root_id:
+                new_id = node_mapping[old_id]
+                ancestor_id = predecessors[old_id]
+                while ancestor_id != -9999 and ancestor_id not in valid_ids and ancestor_id != root_id:
+                    ancestor_id = predecessors[ancestor_id]
+                if ancestor_id == -9999:
+                    ancestor_id = root_id
+                new_ancestor_id = node_mapping[ancestor_id]
+                if new_id != new_ancestor_id:
+                    rows.append(new_id)
+                    cols.append(new_ancestor_id)
+                    data.append(1) 
+        new_graph = csr_matrix((data, (rows, cols)), shape=(len(node_mapping), len(node_mapping)), dtype=np.float32)
+
+        new_tree = nx.from_scipy_sparse_array(new_graph)
+        for old_index, new_index in node_mapping.items():
+            syn_id = df.loc[df['skeleton_id'] == old_index, 'syn_id'].values[0]
+            nx.set_node_attributes(new_tree, {new_index: syn_id}, 'syn_id')
+
+        return new_tree
+
+    @staticmethod
+    def prune_tree(syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph, save_raw = False, file_name = None):
+
+        '''
+        This funciton prunes the csgraph tree 
+        with an option to save the raw tree (tree with all synapses, not just excitatory)
+        '''
+
+        filtered_df = sk_df[sk_df['syn_id'].isin(syn_id_wanted)]
+
+        new_tree = Skeleton.reconstruct_graph(filtered_df, sk_csgraph, rood_id_csgraph)
+        
+        if save_raw:
+            non_unique_skeleton_ids = sk_df[sk_df.duplicated('skeleton_id', keep=False)]['skeleton_id'].unique()
+            filtered_df_unique = sk_df[~sk_df['skeleton_id'].isin(non_unique_skeleton_ids) | (sk_df['syn_id'] == -1)]
+            raw_tree = Skeleton.reconstruct_graph(filtered_df_unique, sk_csgraph, rood_id_csgraph)
+            with open(file_name, 'wb') as f:
+                pickle.dump(raw_tree, f)
+
+        print("Is the graph still a valid tree: ", nx.is_tree(new_tree))
+        print("Number of Nodes: ", len(new_tree.nodes))
+
+        return new_tree
 
     def __init__(self, cell_info, syn_group, syn_k=6, soma_k=12):
         
