@@ -8,6 +8,9 @@ from zss import simple_distance
 from nltk.metrics.distance import edit_distance
 import argparse
 import numpy as np
+import pandas as pd
+from core.Skeleton import Skeleton
+
 
 
 class Node:
@@ -69,56 +72,53 @@ def draw_trees_side_by_side(tree1, tree2, title1, title2, path = None):
     '''
     This function draws the two trees side by side
     '''
-    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+    fig, axs = plt.subplots(1, 2, figsize=(15, 8))
     pos = nx.spring_layout(tree1)  
-    nx.draw(tree1, pos, with_labels=True, ax=axs[0], node_size=200, node_color='skyblue',  font_size = 8)
+    nx.draw(tree1, pos, with_labels=True, ax=axs[0], node_size=200, node_color='skyblue',  font_size = 6)
     axs[0].set_title(title1)
 
     pos = nx.spring_layout(tree2)
-    nx.draw(tree2, pos, with_labels=True, ax=axs[1], node_size=200, node_color='lightgreen', font_size = 8)
+    nx.draw(tree2, pos, with_labels=True, ax=axs[1], node_size=200, node_color='lightgreen', font_size = 6)
     axs[1].set_title(title2)
 
     if path:
         plt.savefig(path)
     plt.show()
 
-def reconstruct_graph(df, csgraph, root_id):
+def convert_to_cs(tree):
     '''
-    This function is used to prune the csgraph created by the skeleton
+    This function is used to convert a networkx tree to csgraph tree
     '''
-    valid_ids = set(df['skeleton_id'])
-    num_nodes = csgraph.shape[0]
-    node_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted(valid_ids.union({root_id})))}
-    rows = []
-    cols = []
-    data = []
-    order, predecessors = breadth_first_order(csgraph, i_start=root_id, directed=False, return_predecessors=True)
-    for old_id in range(num_nodes):
-        if old_id in valid_ids or old_id == root_id:
-            new_id = node_mapping[old_id]
-            ancestor_id = predecessors[old_id]
-            while ancestor_id != -9999 and ancestor_id not in valid_ids and ancestor_id != root_id:
-                ancestor_id = predecessors[ancestor_id]
-            if ancestor_id == -9999:
-                ancestor_id = root_id
-            new_ancestor_id = node_mapping[ancestor_id]
-            if new_id != new_ancestor_id:
-                rows.append(new_id)
-                cols.append(new_ancestor_id)
-                data.append(1) 
-    new_graph = csr_matrix((data, (rows, cols)), shape=(len(node_mapping), len(node_mapping)), dtype=np.float32)
+    node_data = []
+    for node in tree.nodes(data=True):
+        node_id = node[0] 
+        syn_id = node[1]['syn_id'] 
+        node_data.append({'skeleton_id': int(node_id), 'syn_id': int(syn_id)})
+        
+    df = pd.DataFrame(node_data)
+    root_node = df[df['syn_id'] == -1]['skeleton_id'].iloc[0]
+    new_id_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted(df['skeleton_id'], key=lambda x: x == root_node))}
 
-    new_tree = nx.from_scipy_sparse_array(new_graph)
-    for old_index, new_index in node_mapping.items():
-        syn_id = df.loc[df['skeleton_id'] == old_index, 'syn_id'].values[0]
-        nx.set_node_attributes(new_tree, {new_index: syn_id}, 'syn_id')
+    df['skeleton_id'] = df['skeleton_id'].apply(lambda x: new_id_mapping[x])
+    tree = nx.relabel_nodes(tree, new_id_mapping)
+    root_id = df[df['syn_id'] == -1]['skeleton_id'].iloc[0]
+    adj_matrix = nx.to_scipy_sparse_matrix(tree, nodelist=sorted(tree.nodes()), weight=None, dtype=int)
+    adj_matrix.indices = adj_matrix.indices.astype(np.int32)
+    adj_matrix.indptr = adj_matrix.indptr.astype(np.int32)
 
-    return new_tree
+    return adj_matrix, root_id, df
 
-def prune_mst(mst):
+
+def skeleton_syn_to_keep(mst):
     '''
-    This function creates the reference skeleton and prunes mst accordingly
-    After pruning, it does not contain synapses that has non-unique skeleton_id
+    This function creates the reference skeleton 
+    and decides what synapse to keep based on the mst (usually only excitatory)
+
+    Returns:
+    - a list of syn_id to keep
+    - df of the skeleton
+    - csgraph of the skeleton 
+    - root_id of the skeletons
     '''
 
     example_cell_id = int(mst.graph["cell_id"])
@@ -132,59 +132,19 @@ def prune_mst(mst):
 
     kept_syn_ids = list(filtered_df_unique["syn_id"])
     for node in mst.nodes(data=True):
-        node_id, attrs = node
+        _, attrs = node
         if 'syn_id' in attrs and attrs['syn_id'] in kept_syn_ids:
             syn_id_wanted.append(attrs['syn_id'])
 
-    nodes_to_remove = []
-    for node in mst.nodes():
-        syn_id = mst.nodes[node]['syn_id']
-        if syn_id not in syn_id_wanted:
-            nodes_to_remove.append(node)
-
-    # assuming the mst is directed 
-    for node in nodes_to_remove:
-        ancestors = list(nx.ancestors(mst, node))
-        children = list(mst.successors(node))
-        for child in children:
-            for ancestor in ancestors:
-                if ancestor not in nodes_to_remove:
-                    mst.add_edge(ancestor, child)
-                    break
-
-    mst.remove_nodes_from(nodes_to_remove)
-    mst = mst.to_undirected()
-    print("Is the MST still a valid tree: ", nx.is_tree(mst))
-    print("Number of Nodes: ", len(mst.nodes))
-
-    return mst, syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph
+    return syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph
 
 
-def prune_ref_tree(syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph, save_raw = False, file_name = None):
 
-    '''
-    This funciton prunes the reference tree
-    with an option to save the raw tree (tree with all synapses, not just excitatory)
-    '''
-
-    filtered_df = sk_df[sk_df['syn_id'].isin(syn_id_wanted)]
-    new_tree = reconstruct_graph(filtered_df, sk_csgraph, rood_id_csgraph)
-    
-    if save_raw:
-        non_unique_skeleton_ids = sk_df[sk_df.duplicated('skeleton_id', keep=False)]['skeleton_id'].unique()
-        filtered_df_unique = sk_df[~sk_df['skeleton_id'].isin(non_unique_skeleton_ids) | (sk_df['syn_id'] == -1)]
-        raw_tree = reconstruct_graph(filtered_df_unique, sk_csgraph, rood_id_csgraph)
-        with open(file_name, 'wb') as f:
-            pickle.dump(raw_tree, f)
-
-    print("Is the reference still a valid tree: ", nx.is_tree(new_tree))
-    print("Number of Nodes: ", len(new_tree.nodes))
-
-    return new_tree
 
 def compare(mst, ref_tree):
     '''
     This function compares the two trees and return edit distance
+    Draws the two trees side by side
     '''
 
     ref_tree = reindex_tree_by_attribute(ref_tree, 'syn_id')
@@ -226,10 +186,13 @@ def main(mst_path):
     with open(mst_path, 'rb') as f:
         mst = pickle.load(f)
     
-    mst, syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph = prune_mst(mst)
-    ref_tree = prune_ref_tree(syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph)
-    number_nodes, tree_distance, seq_editing = compare(mst, ref_tree)
+    syn_id_wanted, sk_df, sk_csgraph, ref_rood_id = skeleton_syn_to_keep(mst)
+    mst_csgraph, mst_root_id, mst_df = convert_to_cs(mst)
+    new_mst = Skeleton.prune_tree(syn_id_wanted, mst_df, mst_csgraph, mst_root_id)
+    ref_tree = Skeleton.prune_tree(syn_id_wanted, sk_df, sk_csgraph, ref_rood_id)
+    number_nodes, tree_distance, seq_editing = compare(new_mst, ref_tree)
 
+    return number_nodes, tree_distance, seq_editing
 
 
 if __name__ == '__main__':
