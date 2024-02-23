@@ -148,7 +148,7 @@ class CAVE:
         mesh_anchor = mesh.apply_mask(in_comp)
         nrn = meshwork.Meshwork(mesh_anchor, seg_id=example_cell_id)
 
-        inp_synapses = self.download_input_synapses(example_cell_id, None, False)
+        inp_synapses = self.download_input_synapses(example_cell_id, cell_df=None, rescale=False)
         inp_synapses['ctr_pt_position'] = inp_synapses.apply(lambda row: [row['ctr_pt_x'], row['ctr_pt_y'], row['ctr_pt_z']], axis=1)
         nrn.add_annotations('syn_in', inp_synapses, point_column='ctr_pt_position')
 
@@ -161,8 +161,16 @@ class CAVE:
         root_id = nrn._mind_to_skind(nrn.root)[0]
         sk_df = nrn.anno.syn_in.df
         sk_df["skeleton_id"] = nrn._mind_to_skind(nrn.anno.syn_in.mesh_index)
-        sk_df.loc[len(sk_df.index)] = [-1, -1, -1, -1, "Unknown", "Unknown", 0, 0, 0, position[0], -1, root_id]  
-        sk_df = sk_df.rename(columns={'pre_pt_root_id': 'pre_cell_id'})
+        sk_df = sk_df.drop(columns=["ctr_pt_x", "ctr_pt_y", "ctr_pt_z"])
+
+        # for the soma, we set:
+        # syn_id, pre_cell_id, post_pt_root_id, and size as -1
+        # cell_type_pre and cell_type_pos as "Unknown"
+        # ctr_pt_position as the position of the soma 
+        # mesh_index_filt as -1
+        # skeleton_id as the root's skeleton_id
+        sk_df.loc[len(sk_df.index)] = [-1, -1, -1, -1, "Unknown", "Unknown", position[0], -1, root_id]  
+
         sk_df = sk_df.rename(columns={'id': 'syn_id'})
         sk_csgraph = nrn.skeleton.csgraph
 
