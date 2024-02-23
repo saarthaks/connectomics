@@ -138,7 +138,7 @@ class CAVE:
             yield synapses_grouped
 
 
-    def download_sk_anno(self, example_cell_id):
+    def download_sk_anno(self, cell_table_path, example_cell_id):
         mm = trimesh_io.MeshMeta(cv_path = self.client.info.segmentation_source(),
                             disk_cache_path='minnie65_v117_meshes',
                             map_gs_to_https=True)
@@ -152,7 +152,7 @@ class CAVE:
         inp_synapses['ctr_pt_position'] = inp_synapses.apply(lambda row: [row['ctr_pt_x'], row['ctr_pt_y'], row['ctr_pt_z']], axis=1)
         nrn.add_annotations('syn_in', inp_synapses, point_column='ctr_pt_position')
 
-        cell_table = pd.read_csv("data/cells_no_repeats.csv")
+        cell_table = pd.read_csv(cell_table_path)
         cell_table['pt_position'] = cell_table.apply(lambda row: [row['pt_x'], row['pt_y'], row['pt_z']], axis=1)
         q = "pt_root_id == " + str(example_cell_id)
         nrn.add_annotations('soma_pt', cell_table.query(q).copy(), point_column='pt_position', anchored=False)
