@@ -113,7 +113,7 @@ def convert_to_cs(tree):
     return adj_matrix, root_id, df
 
 
-def skeleton_syn_to_keep(cell_table_path, mst):
+def skeleton_syn_to_keep(cell_table_path, mst, cell_df=None):
     """
     This function creates the reference skeleton 
     and decides what synapse to keep based on the mst (usually only excitatory)
@@ -129,7 +129,7 @@ def skeleton_syn_to_keep(cell_table_path, mst):
     example_cell_id = int(mst.graph["cell_id"])
     print(example_cell_id)
     client = CAVE()
-    sk_df, sk_csgraph, rood_id_csgraph = client.download_sk_anno(cell_table_path, example_cell_id)
+    sk_df, sk_csgraph, rood_id_csgraph = client.download_sk_anno(cell_table_path, example_cell_id, cell_df)
 
     syn_id_wanted = []
     non_unique_skeleton_ids = sk_df[sk_df.duplicated('skeleton_id', keep=False)]['skeleton_id'].unique()
@@ -215,7 +215,7 @@ def main(cell_table_path, mst_path):
     with open(mst_path, 'rb') as f:
         mst = pickle.load(f)
     
-    syn_id_wanted, sk_df, sk_csgraph, ref_rood_id = skeleton_syn_to_keep(cell_table_path, mst)
+    syn_id_wanted, sk_df, sk_csgraph, ref_rood_id = skeleton_syn_to_keep(cell_table_path, mst, cell_df=None)
     mst_csgraph, mst_root_id, mst_df = convert_to_cs(mst)
     new_mst = Skeleton.prune_tree(syn_id_wanted, mst_df, mst_csgraph, mst_root_id)
     ref_tree = Skeleton.prune_tree(syn_id_wanted, sk_df, sk_csgraph, ref_rood_id)
