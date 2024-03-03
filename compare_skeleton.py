@@ -117,22 +117,25 @@ def skeleton_syn_to_keep(cell_table_path, mst, cell_df=None):
     """
     This function creates the reference skeleton 
     and decides what synapse to keep based on the mst (usually only excitatory)
+    Note, if more than one synapses have the same skeleton_id, discard them all
 
     @param str cell_table_path: The path the reference cell table
     @param networkx tree mst: The MST we want to construct reference tree to
-    @return: list syn_id_wanted: The list of syn_id that we want to keep in the reference tree
-    @return: pandas df sk_df: The dataframe of the pruned skeleton, including skeleton_id and syn_id
-    @return: csgraph sk_csgraph: The csgraph of the skeleton
-    @return: int rood_id_csgraph: The skeleton_id of the root node (soma)
+    @return list syn_id_wanted: The list of syn_id that we want to keep in the reference tree
+    @return pandas df sk_df: The dataframe of the pruned skeleton, including skeleton_id and syn_id
+    @return csgraph sk_csgraph: The csgraph of the skeleton
+    @return int rood_id_csgraph: The skeleton_id of the root node (soma)
     """
 
     example_cell_id = int(mst.graph["cell_id"])
     print(example_cell_id)
     client = CAVE()
-    sk_df, sk_csgraph, rood_id_csgraph = client.download_sk_anno(cell_table_path, example_cell_id, cell_df)
+    cell_df = pd.read_csv(cell_table_path)
+    sk_df, sk_csgraph, rood_id_csgraph = client.download_sk_anno(example_cell_id, cell_df)
 
     syn_id_wanted = []
     non_unique_skeleton_ids = sk_df[sk_df.duplicated('skeleton_id', keep=False)]['skeleton_id'].unique()
+    # only synapses with unique skeleton_id are kept
     filtered_df_unique = sk_df[~sk_df['skeleton_id'].isin(non_unique_skeleton_ids) | (sk_df['syn_id'] == -1)]
 
     kept_syn_ids = list(filtered_df_unique["syn_id"])
@@ -143,6 +146,34 @@ def skeleton_syn_to_keep(cell_table_path, mst, cell_df=None):
 
     return syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph
 
+def prune_tree(syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph, file_name = None):
+    """
+    This funciton prunes the csgraph tree 
+    with an option to save the raw tree (tree with all synapses, not just excitatory)
+
+    @param list syn_id_wanted: The list of synapes ids we want to keep
+    @param pandas df sk_df: The dataframe of the pruned skeleton, including skeleton_id and syn_id
+    @param csgraph sk_csgraph: The csgraph of the skeleton
+    @param int rood_id_csgraph: The skeleton_id corresponding to the soma
+    @param str file_name: The file name where we save the raw trees to. Optinal, default to not saving (None)
+    @return networkx tree new_tree: The pruned tree, with syn_id as attribute
+    """
+
+    filtered_df = sk_df[sk_df['syn_id'].isin(syn_id_wanted)]
+
+    new_tree = Skeleton.prune_graph_with_synapses(filtered_df, sk_csgraph, rood_id_csgraph)
+    
+    if file_name:
+        non_unique_skeleton_ids = sk_df[sk_df.duplicated('skeleton_id', keep=False)]['skeleton_id'].unique()
+        filtered_df_unique = sk_df[~sk_df['skeleton_id'].isin(non_unique_skeleton_ids) | (sk_df['syn_id'] == -1)]
+        raw_tree = Skeleton.prune_graph_with_synapses(filtered_df_unique, sk_csgraph, rood_id_csgraph)
+        with open(file_name, 'wb') as f:
+            pickle.dump(raw_tree, f)
+
+    print("Is the graph still a valid tree: ", nx.is_tree(new_tree))
+    print("Number of Nodes: ", len(new_tree.nodes))
+
+    return new_tree
 
 def compare(mst, ref_tree):
     """
@@ -217,8 +248,8 @@ def main(cell_table_path, mst_path):
     
     syn_id_wanted, sk_df, sk_csgraph, ref_rood_id = skeleton_syn_to_keep(cell_table_path, mst, cell_df=None)
     mst_csgraph, mst_root_id, mst_df = convert_to_cs(mst)
-    new_mst = Skeleton.prune_tree(syn_id_wanted, mst_df, mst_csgraph, mst_root_id)
-    ref_tree = Skeleton.prune_tree(syn_id_wanted, sk_df, sk_csgraph, ref_rood_id)
+    new_mst = prune_tree(syn_id_wanted, mst_df, mst_csgraph, mst_root_id)
+    ref_tree = prune_tree(syn_id_wanted, sk_df, sk_csgraph, ref_rood_id)
     number_nodes, tree_distance, seq_editing = compare(new_mst, ref_tree)
 
     return number_nodes, tree_distance, seq_editing
