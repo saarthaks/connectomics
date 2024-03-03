@@ -235,10 +235,18 @@ class Skeleton:
         return paths
     
     @staticmethod
-    def reconstruct_graph(df, csgraph, root_id):
-        '''
-        This function is used to prune the csgraph created by the skeleton
-        '''
+    def prune_graph_with_synapses(df, csgraph, root_id):
+        """
+        This function is used to prune the csgraph created by the skeleton and convert to networkx tree
+        What synapses to keep is decided by the input argument df
+        Note, for instances where one node corresponds to multiple synapses, we choose one of those synapses and ignore the remaining
+
+        @param pandas dataframe df: The dataframe of synapses to keep, including skeleton_id and syn_id
+        @param csgraph csgraph: Unpruned tree
+        @param int root_id: The skeleton_id corresponding to the soma
+        @return networkx tree new_tree: The pruned tree, with syn_id as attribute
+        """
+
         valid_ids = set(df['skeleton_id'])
         num_nodes = csgraph.shape[0]
         node_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted(valid_ids.union({root_id})))}
@@ -268,29 +276,6 @@ class Skeleton:
 
         return new_tree
 
-    @staticmethod
-    def prune_tree(syn_id_wanted, sk_df, sk_csgraph, rood_id_csgraph, save_raw = False, file_name = None):
-
-        '''
-        This funciton prunes the csgraph tree 
-        with an option to save the raw tree (tree with all synapses, not just excitatory)
-        '''
-
-        filtered_df = sk_df[sk_df['syn_id'].isin(syn_id_wanted)]
-
-        new_tree = Skeleton.reconstruct_graph(filtered_df, sk_csgraph, rood_id_csgraph)
-        
-        if save_raw:
-            non_unique_skeleton_ids = sk_df[sk_df.duplicated('skeleton_id', keep=False)]['skeleton_id'].unique()
-            filtered_df_unique = sk_df[~sk_df['skeleton_id'].isin(non_unique_skeleton_ids) | (sk_df['syn_id'] == -1)]
-            raw_tree = Skeleton.reconstruct_graph(filtered_df_unique, sk_csgraph, rood_id_csgraph)
-            with open(file_name, 'wb') as f:
-                pickle.dump(raw_tree, f)
-
-        print("Is the graph still a valid tree: ", nx.is_tree(new_tree))
-        print("Number of Nodes: ", len(new_tree.nodes))
-
-        return new_tree
 
     def __init__(self, cell_info, syn_group, syn_k=6, soma_k=12):
         
