@@ -138,15 +138,16 @@ class CAVE:
             yield synapses_grouped
 
 
-    def download_sk_anno(self, cell_table_path, example_cell_id, cell_df=None):
+    def download_sk_anno(self, example_cell_id, cell_df, tag_synapse_cell_type=False):
         """
         This function is used to download input synapse and soma annotation to the skeleton
 
-        @param str cell_table_path: The path to the reference cell table
         @param int example_cell_id: The cell id of the nuron we are skeletonizing
-        @return: pandas dataframe sk_df: The dataframe of the skeleton, including skeleton_id, syn_id, positions, etc.
-        @return: csgraph sk_csgraph: The csgraph of the skeleton
-        @return: int root_id: The skeleton_id of the root node (soma)
+        @param pandas df cell_df: The dataframe of reference cell
+        @param tag_synapse_cell_type bool: Option of tagging each synape with its cell type, default to False
+        @return pandas dataframe sk_df: The dataframe of the skeleton, including skeleton_id, syn_id, positions, etc.
+        @return csgraph sk_csgraph: The csgraph of the skeleton
+        @return int root_id: The skeleton_id of the root node (soma)
         """
 
         mm = trimesh_io.MeshMeta(cv_path = self.client.info.segmentation_source(),
@@ -157,14 +158,16 @@ class CAVE:
         in_comp = mesh_filters.filter_largest_component(mesh)
         mesh_anchor = mesh.apply_mask(in_comp)
         nrn = meshwork.Meshwork(mesh_anchor, seg_id=example_cell_id)
-        cell_table = pd.read_csv(cell_table_path)
-        inp_synapses = self.download_input_synapses(example_cell_id, cell_df=cell_df, rescale=False)
+        if tag_synapse_cell_type:
+            inp_synapses = self.download_input_synapses(example_cell_id, cell_df=cell_df, rescale=False)
+        else:
+            inp_synapses = self.download_input_synapses(example_cell_id, cell_df=None, rescale=False)
         inp_synapses['ctr_pt_position'] = inp_synapses.apply(lambda row: [row['ctr_pt_x'], row['ctr_pt_y'], row['ctr_pt_z']], axis=1)
         nrn.add_annotations('syn_in', inp_synapses, point_column='ctr_pt_position')
 
-        cell_table['pt_position'] = cell_table.apply(lambda row: [row['pt_x'], row['pt_y'], row['pt_z']], axis=1)
+        cell_df['pt_position'] = cell_df.apply(lambda row: [row['pt_x'], row['pt_y'], row['pt_z']], axis=1)
         q = "pt_root_id == " + str(example_cell_id)
-        nrn.add_annotations('soma_pt', cell_table.query(q).copy(), point_column='pt_position', anchored=False)
+        nrn.add_annotations('soma_pt', cell_df.query(q).copy(), point_column='pt_position', anchored=False)
         nrn.skeletonize_mesh(soma_pt=nrn.anno.soma_pt.points[0], soma_thresh_distance=8500)
         position = nrn.anno.soma_pt.df["pt_position"].values
         root_id = nrn._mind_to_skind(nrn.root)[0]
