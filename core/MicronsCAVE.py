@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 from time import sleep
 from requests.exceptions import HTTPError
+from meshparty import meshwork
+from meshparty import trimesh_io, mesh_filters
+
 from tqdm import tqdm
 
 class CAVE:
@@ -49,7 +52,7 @@ class CAVE:
         filter_dict = {'cell_type': ['BC', 'MC', 'BPC', 'NGC']}
         return self.download_cells(filter_dict)
 
-    def download_synapses(self, filter_dict, cell_df=None):
+    def download_synapses(self, filter_dict, cell_df=None, rescale=True):
 
         syn_df = self.client.materialize.query_table('synapses_pni_2',
                                                     filter_in_dict = filter_dict,
@@ -62,7 +65,8 @@ class CAVE:
             syn_df['cell_type_pre'] = 'Unknown'
             syn_df['cell_type_post'] = 'Unknown'
         
-        syn_df['ctr_pt_position'] = syn_df['ctr_pt_position'].apply(CAVE.rescale_position)
+        if rescale:
+            syn_df['ctr_pt_position'] = syn_df['ctr_pt_position'].apply(CAVE.rescale_position)
         position_df = syn_df['ctr_pt_position'].apply(pd.Series)
         position_df.columns = ['ctr_pt_x', 'ctr_pt_y', 'ctr_pt_z']
 
@@ -71,20 +75,20 @@ class CAVE:
 
         return syn_df
     
-    def download_input_synapses(self, post_pt_root_ids, cell_df=None):
+    def download_input_synapses(self, post_pt_root_ids, cell_df=None, rescale=True):
         if type(post_pt_root_ids) == int:
             post_pt_root_ids = [post_pt_root_ids]
 
         filter_dict = {'post_pt_root_id': post_pt_root_ids}
-        syn_df = self.download_synapses(filter_dict, cell_df)
+        syn_df = self.download_synapses(filter_dict, cell_df, rescale)
 
         if len(syn_df) >= 500000:
             chunk_1 = post_pt_root_ids[:len(post_pt_root_ids)//2]
             filter_dict_1 = {'post_pt_root_id': chunk_1}
             chunk_2 = post_pt_root_ids[len(post_pt_root_ids)//2:]
             filter_dict_2 = {'post_pt_root_id': chunk_2}
-            syn_df_1 = self.download_synapses(filter_dict_1, cell_df)
-            syn_df_2 = self.download_synapses(filter_dict_2, cell_df)
+            syn_df_1 = self.download_synapses(filter_dict_1, cell_df, rescale)
+            syn_df_2 = self.download_synapses(filter_dict_2, cell_df, rescale)
             syn_df = pd.concat([syn_df_1, syn_df_2], axis=0)
 
         return syn_df
@@ -132,3 +136,54 @@ class CAVE:
                 syn_df = self.download_output_synapses(chunk_ids, cell_df)
             synapses_grouped = syn_df.groupby('pre_pt_root_id')
             yield synapses_grouped
+
+
+    def download_sk_anno(self, example_cell_id, cell_df, tag_synapse_cell_type=False):
+        """
+        This function is used to download input synapse and soma annotation to the skeleton
+
+        @param int example_cell_id: The cell id of the nuron we are skeletonizing
+        @param pandas df cell_df: The dataframe of reference cell
+        @param tag_synapse_cell_type bool: Option of tagging each synape with its cell type, default to False
+        @return pandas dataframe sk_df: The dataframe of the skeleton, including skeleton_id, syn_id, positions, etc.
+        @return csgraph sk_csgraph: The csgraph of the skeleton
+        @return int root_id: The skeleton_id of the root node (soma)
+        """
+
+        mm = trimesh_io.MeshMeta(cv_path = self.client.info.segmentation_source(),
+                            disk_cache_path='minnie65_v117_meshes',
+                            map_gs_to_https=True)
+        mesh = mm.mesh(seg_id=example_cell_id)
+
+        in_comp = mesh_filters.filter_largest_component(mesh)
+        mesh_anchor = mesh.apply_mask(in_comp)
+        nrn = meshwork.Meshwork(mesh_anchor, seg_id=example_cell_id)
+        if tag_synapse_cell_type:
+            inp_synapses = self.download_input_synapses(example_cell_id, cell_df=cell_df, rescale=False)
+        else:
+            inp_synapses = self.download_input_synapses(example_cell_id, cell_df=None, rescale=False)
+        inp_synapses['ctr_pt_position'] = inp_synapses.apply(lambda row: [row['ctr_pt_x'], row['ctr_pt_y'], row['ctr_pt_z']], axis=1)
+        nrn.add_annotations('syn_in', inp_synapses, point_column='ctr_pt_position')
+
+        cell_df['pt_position'] = cell_df.apply(lambda row: [row['pt_x'], row['pt_y'], row['pt_z']], axis=1)
+        q = "pt_root_id == " + str(example_cell_id)
+        nrn.add_annotations('soma_pt', cell_df.query(q).copy(), point_column='pt_position', anchored=False)
+        nrn.skeletonize_mesh(soma_pt=nrn.anno.soma_pt.points[0], soma_thresh_distance=8500)
+        position = nrn.anno.soma_pt.df["pt_position"].values
+        root_id = nrn._mind_to_skind(nrn.root)[0]
+        sk_df = nrn.anno.syn_in.df
+        sk_df["skeleton_id"] = nrn._mind_to_skind(nrn.anno.syn_in.mesh_index)
+        sk_df = sk_df.drop(columns=["ctr_pt_x", "ctr_pt_y", "ctr_pt_z"])
+
+        # for the soma, we set:
+        # syn_id, pre_cell_id, post_pt_root_id, and size as -1
+        # cell_type_pre and cell_type_pos as "Unknown"
+        # ctr_pt_position as the position of the soma 
+        # mesh_index_filt as -1
+        # skeleton_id as the root's skeleton_id
+        sk_df.loc[len(sk_df.index)] = [-1, -1, -1, -1, "Unknown", "Unknown", position[0], -1, root_id]  
+
+        sk_df = sk_df.rename(columns={'id': 'syn_id'})
+        sk_csgraph = nrn.skeleton.csgraph
+
+        return sk_df, sk_csgraph, root_id

@@ -3,6 +3,10 @@ import pandas as pd
 from copy import deepcopy
 import networkx as nx
 from sklearn.neighbors import NearestNeighbors
+from scipy.sparse.csgraph import breadth_first_order
+from scipy.sparse import csr_matrix
+import pickle
+
 
 class Skeleton:
 
@@ -229,6 +233,49 @@ class Skeleton:
         # remove paths that are empty
         paths = [path for path in paths if len(path) > 0]
         return paths
+    
+    @staticmethod
+    def prune_graph_with_synapses(df, csgraph, root_id):
+        """
+        This function is used to prune the csgraph created by the skeleton and convert to networkx tree
+        What synapses to keep is decided by the input argument df
+        Note, for instances where one node corresponds to multiple synapses, we choose one of those synapses and ignore the remaining
+
+        @param pandas dataframe df: The dataframe of synapses to keep, including skeleton_id and syn_id
+        @param csgraph csgraph: Unpruned tree
+        @param int root_id: The skeleton_id corresponding to the soma
+        @return networkx tree new_tree: The pruned tree, with syn_id as attribute
+        """
+
+        valid_ids = set(df['skeleton_id'])
+        num_nodes = csgraph.shape[0]
+        node_mapping = {old_id: new_id for new_id, old_id in enumerate(sorted(valid_ids.union({root_id})))}
+        rows = []
+        cols = []
+        data = []
+        order, predecessors = breadth_first_order(csgraph, i_start=root_id, directed=False, return_predecessors=True)
+        for old_id in range(num_nodes):
+            if old_id in valid_ids or old_id == root_id:
+                new_id = node_mapping[old_id]
+                ancestor_id = predecessors[old_id]
+                while ancestor_id != -9999 and ancestor_id not in valid_ids and ancestor_id != root_id:
+                    ancestor_id = predecessors[ancestor_id]
+                if ancestor_id == -9999:
+                    ancestor_id = root_id
+                new_ancestor_id = node_mapping[ancestor_id]
+                if new_id != new_ancestor_id:
+                    rows.append(new_id)
+                    cols.append(new_ancestor_id)
+                    data.append(1) 
+        new_graph = csr_matrix((data, (rows, cols)), shape=(len(node_mapping), len(node_mapping)), dtype=np.float32)
+
+        new_tree = nx.from_scipy_sparse_array(new_graph)
+        for old_index, new_index in node_mapping.items():
+            syn_id = df.loc[df['skeleton_id'] == old_index, 'syn_id'].values[0]
+            nx.set_node_attributes(new_tree, {new_index: syn_id}, 'syn_id')
+
+        return new_tree
+
 
     def __init__(self, cell_info, syn_group, syn_k=6, soma_k=12):
         
