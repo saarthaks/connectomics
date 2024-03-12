@@ -2,6 +2,7 @@ import numpy as np
 from numba import jit
 import networkx as nx
 from copy import deepcopy
+from collections import defaultdict
 import pylcs as LCS
 
 class BranchSeq:
@@ -18,27 +19,66 @@ class BranchSeq:
         # 131072-173791: CJK Unified Ideographs Extension B
         coding_block_3 = np.arange(131072, 173792, 1)
         code_points = np.concatenate([coding_block_1, coding_block_2, coding_block_3])
+        
+        pt_root_id_to_char = defaultdict(str)
+        char_to_pt_root_id = defaultdict(int)
+        for i, pt_root_id in enumerate(pt_root_ids):
+            pt_root_id_to_char[pt_root_id] = chr(code_points[i])
 
-        pt_root_id_to_char = {pt_root_id: chr(code_points[i]) for i, pt_root_id in enumerate(pt_root_ids)}
-        char_to_pt_root_id = {v: k for k, v in pt_root_id_to_char.items()}
+        for k, v in pt_root_id_to_char.items():
+            char_to_pt_root_id[v] = k
         return pt_root_id_to_char, char_to_pt_root_id
 
     @staticmethod
     def collapse_path(path, graph):
-        if not path:
+        if not path or len(path) == 0:
             return []
+    
+        # filter out nodes with no pre_cell_id
+        path = list(filter(lambda node: graph.nodes[node].get('pre_cell_id', -999) != -999, path))
 
-        new_seq = [path[0]]  # Start with the first node of the sequence
+        if len(path) <= 1:
+            return path
 
+        start_id = graph.nodes[path[0]]['pre_cell_id']
+        if all(graph.nodes[node]['pre_cell_id'] == start_id for node in path):
+            return [path[0]]
+    
+        if len(path) == 2:
+            return path
+
+        end_id = graph.nodes[path[-1]]['pre_cell_id']
+        if len(path) == 3:
+            if start_id == graph.nodes[path[1]]['pre_cell_id']:
+                return [path[1], path[2]]
+            elif end_id == graph.nodes[path[1]]['pre_cell_id']:
+                return [path[0], path[1]]
+            else:
+                return path
+        
+        # finds the index of b (start_idx) in ['a', 'a', ..., 'a', 'b', ...]
         for i in range(1, len(path)):
-            current_node = path[i]
+            if graph.nodes[path[i]]['pre_cell_id'] != start_id:
+                start_idx = i
+                break
+        
+        new_seq = [path[i-1], path[i]]
+        if start_idx == len(path) - 1:
+            return new_seq
+
+        # finds the index of b (end_idx) in [..., 'b', 'a', ..., 'a', 'a']
+        for j in range(len(path) - 2, -1, -1):
+            if graph.nodes[path[j]]['pre_cell_id'] != end_id:
+                end_idx = j
+                break
+        
+        
+        for k in range(start_idx + 1, end_idx + 2):
+            current_node = path[k]
             previous_node = new_seq[-1]
 
             # Check if the current node has the same pre_cell_id as the previous node
-            if graph.nodes[current_node].get('pre_cell_id') != graph.nodes[previous_node].get('pre_cell_id'):
-                new_seq.append(current_node)
-            elif i == len(path) - 1:
-                # If it's the last node, add it regardless of the pre_cell_id
+            if graph.nodes[current_node]['pre_cell_id'] != graph.nodes[previous_node]['pre_cell_id']:
                 new_seq.append(current_node)
 
         return new_seq
@@ -84,11 +124,44 @@ class BranchSeq:
         return dists
     
     @staticmethod
+    def cluster_dist(branch1, branch2):
+        set1 = set(branch1.cell_id_sequence['collapsed'])
+        set2 = set(branch2.cell_id_sequence['collapsed'])
+        over = set1.intersection(set2)
+
+        set1_idx = np.argwhere(np.isin(branch1.cell_id_sequence['collapsed'], list(over))).flatten()
+        min_1, max_1 = min(set1_idx), max(set1_idx)
+        dist_1 = np.linalg.norm(branch1.syn_pos_sequence['collapsed'][min_1] - branch1.syn_pos_sequence['collapsed'][max_1])
+
+        set2_idx = np.argwhere(np.isin(branch2.cell_id_sequence['collapsed'], list(over))).flatten()
+        min_2, max_2 = min(set2_idx), max(set2_idx)
+        dist_2 = np.linalg.norm(branch2.syn_pos_sequence['collapsed'][min_2] - branch2.syn_pos_sequence['collapsed'][max_2])
+
+        return dist_1, dist_2
+
+    @staticmethod
+    def cluster_dist_list(branch, other_branches, pt_root_to_char_dict):
+        set1 = set(branch.cell_id_sequence['collapsed'])
+        other_sets = [set(other_branch.cell_id_sequence['collapsed']) for other_branch in other_branches]
+        all_cluster_sizes = [len(set1.intersection(other_set)) for other_set in other_sets]
+        dists = []
+        for cluster_size, branch2 in zip(all_cluster_sizes, other_branches):
+            if cluster_size > 1:
+                dists.append((cluster_size, BranchSeq.cluster_dist(branch, branch2)))
+            else:
+                dists.append((cluster_size, (np.inf, np.inf)))
+        
+        return dists
+
+    @staticmethod
     @jit(nopython=True)
     def sample_permutation(score_matrix):
-        L = score_matrix.shape[0]
+        # score_matrix is shaped L x A, 
+        # where L is number of synapses on dendrite and A is number of axons to be sampled
+
+        L, A = score_matrix.shape
         chosen_rows = np.arange(L)
-        chosen_columns = np.empty(L, dtype=np.int32)
+        chosen_columns = np.empty(A, dtype=np.int32)
         for i in range(L):
             # Normalize scores for the chosen row, excluding already chosen columns
             row = chosen_rows[i]
@@ -114,24 +187,24 @@ class BranchSeq:
         self.cell_type_sequence = {'raw': [], 'collapsed': []}
 
         try:
-            if path[0]['cell_type']:
+            if graph.nodes[path[0]]['cell_type']:
                 cell_type_key = 'cell_type'
         except KeyError:
             cell_type_key = 'cell_type_pre'
         
         for node in path:
-            if graph.nodes[node][cell_type_key] not in valid_types:
+            if graph.nodes[node].get(cell_type_key, 'Unknown') not in valid_types:
                 continue
-            self.syn_id_sequence['raw'].append(graph.nodes[node]['syn_id'])
+            self.syn_id_sequence['raw'].append(graph.nodes[node].get('syn_id', node))
             self.syn_pos_sequence['raw'].append(graph.nodes[node]['pos'])
             self.cell_id_sequence['raw'].append(graph.nodes[node]['pre_cell_id'])
             self.cell_type_sequence['raw'].append(graph.nodes[node][cell_type_key])
         
         collapsed_path = BranchSeq.collapse_path(path, graph)
         for node in collapsed_path:
-            if graph.nodes[node][cell_type_key] not in valid_types:
+            if graph.nodes[node].get(cell_type_key, 'Unknown') not in valid_types:
                 continue
-            self.syn_id_sequence['collapsed'].append(graph.nodes[node]['syn_id'])
+            self.syn_id_sequence['collapsed'].append(graph.nodes[node].get('syn_id', node))
             self.syn_pos_sequence['collapsed'].append(graph.nodes[node]['pos'])
             self.cell_id_sequence['collapsed'].append(graph.nodes[node]['pre_cell_id'])
             self.cell_type_sequence['collapsed'].append(graph.nodes[node][cell_type_key])
@@ -144,9 +217,9 @@ class BranchSeq:
     
     def get_sequence(self, collapsed=True, pt_root_to_char_dict=None):
         if collapsed:
-            return BranchSeq.sequence_to_string(self.syn_id_sequence['collapsed'], pt_root_to_char_dict)
+            return BranchSeq.sequence_to_string(self.cell_id_sequence['collapsed'], pt_root_to_char_dict)
         else:
-            return BranchSeq.sequence_to_string(self.syn_id_sequence['raw'], pt_root_to_char_dict)
+            return BranchSeq.sequence_to_string(self.cell_id_sequence['raw'], pt_root_to_char_dict)
 
     def distance(self, collapsed=True):
         if collapsed:

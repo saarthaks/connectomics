@@ -3,10 +3,9 @@ import numpy as np
 import pandas as pd
 from time import sleep
 from requests.exceptions import HTTPError
+from tqdm import tqdm
 from meshparty import meshwork
 from meshparty import trimesh_io, mesh_filters
-
-from tqdm import tqdm
 
 class CAVE:
 
@@ -80,33 +79,33 @@ class CAVE:
             post_pt_root_ids = [post_pt_root_ids]
 
         filter_dict = {'post_pt_root_id': post_pt_root_ids}
-        syn_df = self.download_synapses(filter_dict, cell_df, rescale)
+        syn_df = self.download_synapses(filter_dict, cell_df=cell_df, rescale=rescale)
 
         if len(syn_df) >= 500000:
             chunk_1 = post_pt_root_ids[:len(post_pt_root_ids)//2]
             filter_dict_1 = {'post_pt_root_id': chunk_1}
             chunk_2 = post_pt_root_ids[len(post_pt_root_ids)//2:]
             filter_dict_2 = {'post_pt_root_id': chunk_2}
-            syn_df_1 = self.download_synapses(filter_dict_1, cell_df, rescale)
-            syn_df_2 = self.download_synapses(filter_dict_2, cell_df, rescale)
+            syn_df_1 = self.download_synapses(filter_dict_1, cell_df=cell_df, rescale=rescale)
+            syn_df_2 = self.download_synapses(filter_dict_2, cell_df=cell_df, rescale=rescale)
             syn_df = pd.concat([syn_df_1, syn_df_2], axis=0)
 
         return syn_df
 
-    def download_output_synapses(self, pre_pt_root_ids, cell_df=None):
+    def download_output_synapses(self, pre_pt_root_ids, cell_df=None, rescale=True):
         if type(pre_pt_root_ids) == int:
             pre_pt_root_ids = [pre_pt_root_ids]
 
         filter_dict = {'pre_pt_root_id': pre_pt_root_ids}
-        syn_df = self.download_synapses(filter_dict, cell_df)
+        syn_df = self.download_synapses(filter_dict, cell_df=cell_df, rescale=rescale)
 
         if len(syn_df) >= 500000:
             chunk_1 = pre_pt_root_ids[:len(pre_pt_root_ids)//2]
             filter_dict_1 = {'pre_pt_root_id': chunk_1}
             chunk_2 = pre_pt_root_ids[len(pre_pt_root_ids)//2:]
             filter_dict_2 = {'pre_pt_root_id': chunk_2}
-            syn_df_1 = self.download_synapses(filter_dict_1, cell_df)
-            syn_df_2 = self.download_synapses(filter_dict_2, cell_df)
+            syn_df_1 = self.download_synapses(filter_dict_1, cell_df=cell_df, rescale=rescale)
+            syn_df_2 = self.download_synapses(filter_dict_2, cell_df=cell_df, rescale=rescale)
             syn_df = pd.concat([syn_df_1, syn_df_2], axis=0)
         
         return syn_df
@@ -116,11 +115,11 @@ class CAVE:
         for chunk in tqdm(range(num_chunks)):
             chunk_ids = post_pt_root_ids[chunk*chunk_size:(chunk+1)*chunk_size]
             try:
-                syn_df = self.download_input_synapses(chunk_ids, cell_df)
+                syn_df = self.download_input_synapses(chunk_ids, cell_df=cell_df, rescale=True)
             except HTTPError:
                 print(f"Chunk {chunk} failed, retrying")
                 sleep(timeout)
-                syn_df = self.download_input_synapses(chunk_ids, cell_df)
+                syn_df = self.download_input_synapses(chunk_ids, cell_df=cell_df, rescale=True)
             synapses_grouped = syn_df.groupby('post_pt_root_id')
             yield synapses_grouped
 
@@ -129,14 +128,13 @@ class CAVE:
         for chunk in tqdm(range(num_chunks)):
             chunk_ids = pre_pt_root_ids[chunk*chunk_size:(chunk+1)*chunk_size]
             try:
-                syn_df = self.download_output_synapses(chunk_ids, cell_df)
+                syn_df = self.download_output_synapses(chunk_ids, cell_df=cell_df, rescale=True)
             except HTTPError:
                 print(f"Chunk {chunk} failed, retrying")
                 sleep(timeout)
-                syn_df = self.download_output_synapses(chunk_ids, cell_df)
+                syn_df = self.download_output_synapses(chunk_ids, cell_df=cell_df, rescale=True)
             synapses_grouped = syn_df.groupby('pre_pt_root_id')
             yield synapses_grouped
-
 
     def download_sk_anno(self, example_cell_id, cell_df, tag_synapse_cell_type=False):
         """

@@ -195,8 +195,11 @@ class Skeleton:
         return tree
     
     @staticmethod
-    def extract_paths_from_graph(graph, duplicate_tail=False):
+    def extract_paths_from_graph(graph, duplicate_tail=False, navis_reverse=False):
 
+        if navis_reverse:
+            graph = graph.reverse()
+        
         # first get all leaves
         leaves = [node for node, degree in graph.out_degree() if degree == 0]
 
@@ -415,7 +418,7 @@ class Skeleton:
         # first get all leaves
         leaves = [node for node, degree in graph.out_degree() if degree == 0]
 
-        # for each leaf, walk to its parent until you reach a node with no parents
+        # for each leaf, walk to its parent until you reach a node with no parents (the root)
         # save a list of (node, number of children) tuples
         paths = set()
         for leaf in leaves:
