@@ -87,7 +87,7 @@ class BranchSeq:
     def sequence_to_string(sequence, pt_root_to_char_dict=None):
         if pt_root_to_char_dict is None:
             return sequence
-        
+
         return ''.join([pt_root_to_char_dict[node] for node in sequence])
     
     @staticmethod
@@ -100,14 +100,17 @@ class BranchSeq:
         seq2 = branch2.get_sequence(pt_root_to_char_dict=pt_root_to_char_dict)
 
         seq_1_idx = list(filter(lambda i: i != -1, LCS.lcs_sequence_idx(seq2, seq1)))
-        min_1, max_1 = min(seq_1_idx), max(seq_1_idx)
-        dist_1 = np.linalg.norm(branch1.syn_pos_sequence['collapsed'][min_1] - branch1.syn_pos_sequence['collapsed'][max_1])
+        subseq1 = branch1.subsequence(seq_1_idx)
+        # min_1, max_1 = min(seq_1_idx), max(seq_1_idx)
+        # dist_1 = np.linalg.norm(branch1.syn_pos_sequence['collapsed'][min_1] - branch1.syn_pos_sequence['collapsed'][max_1])
         
         seq_2_idx = list(filter(lambda i: i != -1, LCS.lcs_sequence_idx(seq1, seq2)))
-        min_2, max_2 = min(seq_2_idx), max(seq_2_idx)
-        dist_2 = np.linalg.norm(branch2.syn_pos_sequence['collapsed'][min_2] - branch2.syn_pos_sequence['collapsed'][max_2])
+        subseq2 = branch2.subsequence(seq_2_idx)
+        # min_2, max_2 = min(seq_2_idx), max(seq_2_idx)
+        # dist_2 = np.linalg.norm(branch2.syn_pos_sequence['collapsed'][min_2] - branch2.syn_pos_sequence['collapsed'][max_2])
 
-        return dist_1, dist_2
+        # return dist_1, dist_2
+        return subseq1, subseq2
 
     @staticmethod
     def lcs_dist_list(branch, other_branches, pt_root_to_char_dict):
@@ -116,10 +119,46 @@ class BranchSeq:
         all_lcs = BranchSeq.lcs_list(seq1, other_seqs)
         dists = []
         for lcs, branch2 in zip(all_lcs, other_branches):
-            if lcs > 1:
+            if lcs > 2:
                 dists.append((lcs, BranchSeq.lcs_dist(branch, branch2, pt_root_to_char_dict)))
             else:
-                dists.append((lcs, (np.inf, np.inf)))
+                dists.append((lcs, (None, None)))
+        
+        return dists
+    
+    @staticmethod
+    def string_list(seq1, other_seqs):
+        return LCS.lcs_string_of_list(seq1, other_seqs)
+
+    @staticmethod
+    def string_dist(branch1, branch2, pt_root_to_char_dict):
+        seq1 = branch1.get_sequence(pt_root_to_char_dict=pt_root_to_char_dict)
+        seq2 = branch2.get_sequence(pt_root_to_char_dict=pt_root_to_char_dict)
+
+        seq_1_idx = list(filter(lambda i: i != -1, LCS.lcs_string_idx(seq2, seq1)))
+        subseq1 = branch1.subsequence(seq_1_idx)
+        # min_1, max_1 = min(seq_1_idx), max(seq_1_idx)
+        # dist_1 = np.linalg.norm(branch1.syn_pos_sequence['collapsed'][min_1] - branch1.syn_pos_sequence['collapsed'][max_1])
+        
+        seq_2_idx = list(filter(lambda i: i != -1, LCS.lcs_string_idx(seq1, seq2)))
+        subseq2 = branch2.subsequence(seq_2_idx)
+        # min_2, max_2 = min(seq_2_idx), max(seq_2_idx)
+        # dist_2 = np.linalg.norm(branch2.syn_pos_sequence['collapsed'][min_2] - branch2.syn_pos_sequence['collapsed'][max_2])
+
+        # return dist_1, dist_2
+        return subseq1, subseq2
+
+    @staticmethod
+    def string_dist_list(branch, other_branches, pt_root_to_char_dict):
+        seq1 = branch.get_sequence(pt_root_to_char_dict=pt_root_to_char_dict)
+        other_seqs = [other_branch.get_sequence(pt_root_to_char_dict=pt_root_to_char_dict) for other_branch in other_branches]
+        all_lcs = BranchSeq.string_list(seq1, other_seqs)
+        dists = []
+        for lcs, branch2 in zip(all_lcs, other_branches):
+            if lcs > 2:
+                dists.append((lcs, BranchSeq.string_dist(branch, branch2, pt_root_to_char_dict)))
+            else:
+                dists.append((lcs, (None, None)))
         
         return dists
     
@@ -129,15 +168,18 @@ class BranchSeq:
         set2 = set(branch2.cell_id_sequence['collapsed'])
         over = set1.intersection(set2)
 
-        set1_idx = np.argwhere(np.isin(branch1.cell_id_sequence['collapsed'], list(over))).flatten()
-        min_1, max_1 = min(set1_idx), max(set1_idx)
-        dist_1 = np.linalg.norm(branch1.syn_pos_sequence['collapsed'][min_1] - branch1.syn_pos_sequence['collapsed'][max_1])
+        set1_idx = np.sort(np.argwhere(np.isin(branch1.cell_id_sequence['collapsed'], list(over))).flatten())
+        subseq1 = branch1.subsequence(set1_idx)
+        # min_1, max_1 = min(set1_idx), max(set1_idx)
+        # dist_1 = np.linalg.norm(branch1.syn_pos_sequence['collapsed'][min_1] - branch1.syn_pos_sequence['collapsed'][max_1])
 
-        set2_idx = np.argwhere(np.isin(branch2.cell_id_sequence['collapsed'], list(over))).flatten()
-        min_2, max_2 = min(set2_idx), max(set2_idx)
-        dist_2 = np.linalg.norm(branch2.syn_pos_sequence['collapsed'][min_2] - branch2.syn_pos_sequence['collapsed'][max_2])
+        set2_idx = np.sort(np.argwhere(np.isin(branch2.cell_id_sequence['collapsed'], list(over))).flatten())
+        subseq2 = branch2.subsequence(set2_idx)
+        # min_2, max_2 = min(set2_idx), max(set2_idx)
+        # dist_2 = np.linalg.norm(branch2.syn_pos_sequence['collapsed'][min_2] - branch2.syn_pos_sequence['collapsed'][max_2])
 
-        return dist_1, dist_2
+        # return dist_1, dist_2
+        return subseq1, subseq2
 
     @staticmethod
     def cluster_dist_list(branch, other_branches, pt_root_to_char_dict):
@@ -155,11 +197,12 @@ class BranchSeq:
 
     @staticmethod
     @jit(nopython=True)
-    def sample_permutation(score_matrix):
+    def sample_permutation(score_matrix):        
         # score_matrix is shaped L x A, 
         # where L is number of synapses on dendrite and A is number of axons to be sampled
 
-        L, A = score_matrix.shape
+        # L, A = score_matrix.shape
+        L = A = score_matrix.shape[0]
         chosen_rows = np.arange(L)
         chosen_columns = np.empty(A, dtype=np.int32)
         for i in range(L):
@@ -186,11 +229,14 @@ class BranchSeq:
         self.cell_id_sequence = {'raw': [], 'collapsed': []}
         self.cell_type_sequence = {'raw': [], 'collapsed': []}
 
-        try:
-            if graph.nodes[path[0]]['cell_type']:
-                cell_type_key = 'cell_type'
-        except KeyError:
-            cell_type_key = 'cell_type_pre'
+        if len(path) > 0:
+            try:
+                if graph.nodes[path[0]]['cell_type']:
+                    cell_type_key = 'cell_type'
+            except KeyError:
+                cell_type_key = 'cell_type_pre'
+        else:
+            cell_type_key = 'cell_type'
         
         for node in path:
             if graph.nodes[node].get(cell_type_key, 'Unknown') not in valid_types:
@@ -208,12 +254,32 @@ class BranchSeq:
             self.syn_pos_sequence['collapsed'].append(graph.nodes[node]['pos'])
             self.cell_id_sequence['collapsed'].append(graph.nodes[node]['pre_cell_id'])
             self.cell_type_sequence['collapsed'].append(graph.nodes[node][cell_type_key])
+        
+        self.branch_length = np.median([graph.nodes[node].get('branch_length', 0) for node in path])
+        self.cell_id_set = set(self.cell_id_sequence['collapsed'])
+
     
     def length(self, collapsed=True):
         if collapsed:
             return len(self.syn_id_sequence['collapsed'])
         else:
             return len(self.syn_id_sequence['raw'])
+    
+    def subsequence(self, indices, collapsed=True):
+        if collapsed:
+            new_branch = deepcopy(self)
+            new_branch.syn_id_sequence['collapsed'] = [self.syn_id_sequence['collapsed'][i] for i in indices]
+            new_branch.syn_pos_sequence['collapsed'] = [self.syn_pos_sequence['collapsed'][i] for i in indices]
+            new_branch.cell_id_sequence['collapsed'] = [self.cell_id_sequence['collapsed'][i] for i in indices]
+            new_branch.cell_type_sequence['collapsed'] = [self.cell_type_sequence['collapsed'][i] for i in indices]
+            return new_branch
+        else:
+            new_branch = deepcopy(self)
+            new_branch.syn_id_sequence['raw'] = [self.syn_id_sequence['raw'][i] for i in indices]
+            new_branch.syn_pos_sequence['raw'] = [self.syn_pos_sequence['raw'][i] for i in indices]
+            new_branch.cell_id_sequence['raw'] = [self.cell_id_sequence['raw'][i] for i in indices]
+            new_branch.cell_type_sequence['raw'] = [self.cell_type_sequence['raw'][i] for i in indices]
+            return new_branch
     
     def get_sequence(self, collapsed=True, pt_root_to_char_dict=None):
         if collapsed:
@@ -223,16 +289,24 @@ class BranchSeq:
 
     def distance(self, collapsed=True):
         if collapsed:
-            return np.linalg.norm(self.syn_pos_sequence['collapsed'][0] - self.syn_pos_sequence['collapsed'][-1])
+            pos = np.array(self.syn_pos_sequence['collapsed'], dtype=np.float32)
+            if len(pos) < 2:
+                return 0
+            return np.linalg.norm(pos[1:] - pos[:-1], axis=1).sum()
         else:
-            return np.linalg.norm(self.syn_pos_sequence['raw'][0] - self.syn_pos_sequence['raw'][-1])
+            pos = np.array(self.syn_pos_sequence['raw'])
+            if len(pos) < 2:
+                return 0
+            return np.linalg.norm(pos[1:] - pos[:-1], axis=1).sum()
         
     def get_random_shuffle(self, collapsed=True):
         if not collapsed:
             return ValueError("Can only shuffle collapsed sequences")
+        random_branch = deepcopy(self)
+        if len(self.cell_id_sequence['collapsed']) < 2:
+            return random_branch
         
         permutation = np.random.permutation(len(self.syn_id_sequence['collapsed']))
-        random_branch = deepcopy(self)
         random_branch.syn_id_sequence['collapsed'] = [self.syn_id_sequence['collapsed'][i] for i in permutation]
         random_branch.cell_id_sequence['collapsed'] = [self.cell_id_sequence['collapsed'][i] for i in permutation]
         random_branch.cell_type_sequence['collapsed'] = [self.cell_type_sequence['collapsed'][i] for i in permutation]
@@ -241,6 +315,9 @@ class BranchSeq:
     def get_type_shuffle(self, collapsed=True):
         if not collapsed:
             return ValueError("Can only shuffle collapsed sequences")
+        random_branch = deepcopy(self)
+        if len(self.cell_id_sequence['collapsed']) < 2:
+            return random_branch
         
         synapses_by_type = {}
         for cell_id, syn_id, cell_type in zip(self.cell_id_sequence['collapsed'], self.syn_id_sequence['collapsed'], self.cell_type_sequence['collapsed']):
@@ -251,7 +328,6 @@ class BranchSeq:
         for cell_type in synapses_by_type:
             np.random.shuffle(synapses_by_type[cell_type])
         
-        random_branch = deepcopy(self)
         new_syn_id_sequence = []
         new_cell_id_sequence = []
         for cell_type in random_branch.cell_type_sequence['collapsed']:
@@ -266,9 +342,11 @@ class BranchSeq:
     def get_axon_shuffle(self, score_mat, collapsed=True):
         if not collapsed:
             return ValueError("Can only shuffle collapsed sequences")
+        random_branch = deepcopy(self)
+        if len(score_mat) < 2:
+            return random_branch
         
         perm = BranchSeq.sample_permutation(np.array(score_mat).copy())
-        random_branch = deepcopy(self)
         random_branch.syn_id_sequence['collapsed'] = [self.syn_id_sequence['collapsed'][i] for i in perm]
         random_branch.cell_id_sequence['collapsed'] = [self.cell_id_sequence['collapsed'][i] for i in perm]
         random_branch.cell_type_sequence['collapsed'] = [self.cell_type_sequence['collapsed'][i] for i in perm]
