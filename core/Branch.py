@@ -4,8 +4,46 @@ import networkx as nx
 from copy import deepcopy
 from collections import defaultdict
 import pylcs as LCS
+from tqdm import tqdm
+
+# from numba_stats import truncnorm
+
+# from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+# import warnings
+
+# warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+# warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
 class BranchSeq:
+
+    @staticmethod
+    def get_shuffle(all_branches, shuffle_type='random', score_dict=None, update_position=False):
+        if shuffle_type == 'original':
+            return all_branches
+
+        shuffled_branches = {}
+        if shuffle_type == 'random':
+            for cell_id, branches in tqdm(all_branches.items()):
+                shuffled_branches[cell_id] = [branch.get_random_shuffle() for branch in branches]
+        elif shuffle_type == 'type':
+            for cell_id, branches in tqdm(all_branches.items()):
+                shuffled_branches[cell_id] = [branch.get_type_shuffle() for branch in branches]
+        elif shuffle_type == 'axon':
+            if score_dict is None:
+                raise ValueError('Score matrix not provided')
+            for cell_id, branches in tqdm(all_branches.items()):
+                if len(score_dict[cell_id]) != len(branches):
+                    raise ValueError('Score matrix length does not match branch length')
+                shuffled_branches[cell_id] = [branch.get_axon_shuffle(score_mat) for branch, score_mat in zip(branches, score_dict[cell_id])]
+        elif shuffle_type == 'continuous':
+            if score_dict is None:
+                raise ValueError('Score matrix not provided')
+            for cell_id, branches in tqdm(all_branches.items()):
+                shuffled_branches[cell_id] = [branch.get_continuous_shuffle(prob_dicts, edit_position=update_position) for branch, prob_dicts in zip(branches, score_dict[cell_id])]
+        else:
+            raise ValueError('Invalid shuffle type')
+        
+        return shuffled_branches
 
     @staticmethod
     def make_id2char_dict(pt_root_ids):
@@ -220,6 +258,62 @@ class BranchSeq:
 
         return chosen_columns
     
+    @staticmethod
+    @jit(parallel=True, fastmath=True, nopython=False)
+    def sample_continuous_permutation(all_mus, all_sigmas, all_probs):
+        # iterate over cell_ids (keys of dicts)
+        # for each cell_id, sample an offset from the probs
+        # for the chosen offset, sample a position from a truncated gaussian
+        # return argsort over the sampled positions from each cell_id
+        positions = []
+        for axonmus, axonsigmas, probs in zip(all_mus, all_sigmas, all_probs):
+            offset = np.random.choice(len(probs), p=probs)
+            mu = axonmus[offset]
+            sigma = axonsigmas[offset]
+            # a, b = (0-mu)/sigma, (1-mu)/sigma
+            # val = truncnorm.rvs(a, b, loc=mu, scale=sigma, size=1, random_state=None)[0]
+
+            if sigma > 0:
+                # a, b = (0-mu)/sigma, (1-mu)/sigma
+                a, b = 0, 1
+                val = truncnorm.rvs(a, b, loc=mu, scale=sigma, size=1, random_state=None)[0]
+                val = min(1, max(0, val))
+            else:
+                val = min(1, max(0, mu))
+
+            positions.append(val+offset)
+        return np.argsort(positions)
+    
+    @staticmethod
+    @jit(parallel=True, fastmath=True, nopython=False)
+    def shift_synapses_continuous(all_mus, all_sigmas, all_probs, syn_positions):
+        # iterate over cell_ids (keys of dicts)
+        # for each cell_id, sample an offset from the probs
+        # for the chosen offset, sample a position from a truncated gaussian
+        # return argsort over the sampled positions from each cell_id
+        positions = []
+        new_syn_positions = []
+        for axonmus, axonsigmas, probs in zip(all_mus, all_sigmas, all_probs):
+            offset = np.random.choice(len(probs), p=probs)
+            vec = syn_positions[offset+1]-syn_positions[offset]
+            origin = syn_positions[offset]
+            mu = axonmus[offset]
+            sigma = axonsigmas[offset]
+            # a, b = (0-mu)/sigma, (1-mu)/sigma
+            # val = truncnorm.rvs(a, b, loc=mu, scale=sigma, size=1, random_state=None)[0]
+
+            if sigma > 0:
+                # a, b = (0-mu)/sigma, (1-mu)/sigma
+                a, b = 0, 1
+                val = truncnorm.rvs(a, b, loc=mu, scale=sigma, size=1, random_state=None)[0]
+                val = min(1, max(0, val))
+            else:
+                val = min(1, max(0, mu))
+            new_syn_positions.append(origin + val*vec)
+            positions.append(val+offset)
+        return np.argsort(positions), new_syn_positions
+
+
     def __init__(self, path, graph, id, valid_types={'23P', '4P', '5P-IT', '5P-ET', '5P-NP', '6P-IT', '6P-CT'}):
 
         self.cell_id = graph.graph['cell_id']
@@ -257,6 +351,7 @@ class BranchSeq:
         
         self.branch_length = np.median([graph.nodes[node].get('branch_length', 0) for node in path])
         self.cell_id_set = set(self.cell_id_sequence['collapsed'])
+        self.apical = False
 
     
     def length(self, collapsed=True):
@@ -347,6 +442,39 @@ class BranchSeq:
             return random_branch
         
         perm = BranchSeq.sample_permutation(np.array(score_mat).copy())
+        random_branch.syn_id_sequence['collapsed'] = [self.syn_id_sequence['collapsed'][i] for i in perm]
+        random_branch.cell_id_sequence['collapsed'] = [self.cell_id_sequence['collapsed'][i] for i in perm]
+        random_branch.cell_type_sequence['collapsed'] = [self.cell_type_sequence['collapsed'][i] for i in perm]
+        return random_branch
+
+    def get_continuous_shuffle(self, dicts, collapsed=True, edit_position=False):
+        if not collapsed:
+            return ValueError("Can only shuffle collapsed sequences")
+        random_branch = deepcopy(self)
+        if dicts is None:
+            return random_branch
+
+        def clean_probs(p):
+            # set nans to zero
+            p[np.isnan(p)] = 0
+            # set negative values to zero
+            p[p < 0] = 0
+            if p.sum() == 0:
+                return np.ones_like(p) / len(p)
+            return p / p.sum()
+        
+        mus = [axondicts['mus'] for axondicts in dicts]
+        sigmas = [axondicts['sigmas'] for axondicts in dicts]
+        probs = [clean_probs(axondicts['probs']) for axondicts in dicts]
+        if edit_position:
+            perm, new_pos = BranchSeq.shift_synapses_continuous(mus, sigmas, probs, self.syn_pos_sequence['collapsed'])
+            random_branch.syn_id_sequence['collapsed'] = [self.syn_id_sequence['collapsed'][i] for i in perm]
+            random_branch.cell_id_sequence['collapsed'] = [self.cell_id_sequence['collapsed'][i] for i in perm]
+            random_branch.cell_type_sequence['collapsed'] = [self.cell_type_sequence['collapsed'][i] for i in perm]
+            random_branch.syn_pos_sequence['collapsed'] = new_pos
+            return random_branch
+        
+        perm = BranchSeq.sample_continuous_permutation(mus, sigmas, probs)
         random_branch.syn_id_sequence['collapsed'] = [self.syn_id_sequence['collapsed'][i] for i in perm]
         random_branch.cell_id_sequence['collapsed'] = [self.cell_id_sequence['collapsed'][i] for i in perm]
         random_branch.cell_type_sequence['collapsed'] = [self.cell_type_sequence['collapsed'][i] for i in perm]

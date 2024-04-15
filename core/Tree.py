@@ -14,29 +14,18 @@ class Tree:
         '''
         self.graph = graph
         self.cell_id = graph.graph['cell_id']
-        self.shuffle_nodes = [n for n in self.graph.nodes() if self.graph.nodes[n].get('cell_type', 'Unknown') != 'Unknown']
         self.root_id = root_id
 
     def get_leaves(self):
         '''Return a list of leaf nodes in the graph.'''
         return [node for node in self.graph.nodes() if self.graph.in_degree(node) == 0]
-    
-    def get_branches(self):
-        '''For each leaf node in graph, get the path from the leaf to the root.
-        Returns a list of BranchSeq objects, one for each leaf-to-root path.
-        '''
-        branches = []
-        for leaf in self.get_leaves():
-            path = nx.shortest_path(self.graph, source=leaf, target=self.root_id)
-            branches.append(BranchSeq(path, self.graph, hash((self.cell_id, leaf))))
-        return branches
-    
+
     def get_paths(self, duplicate_tail=False):
 
         graph = self.graph.reverse()
 
         # first get all leaves
-        leaves = [node for node, degree in graph.out_degree() if degree == 0]
+        leaves = [n for n in graph.nodes if graph.out_degree(n)==0]
 
         # for each leaf, walk to its parent until you reach a node with no parents
         # save a list of (node, number of children) tuples
@@ -157,51 +146,3 @@ class Tree:
             self.coarse_tree.nodes[node]['centrifugal'] = dist_from_root
         
         return [self.coarse_tree.nodes[node]['centrifugal'] for node in self.coarse_tree.nodes if node != self.root_id]
-
-    def get_random_shuffle(self):
-        nodes_to_shuffle, pre_cell_ids, cell_types = zip(*[(n, self.graph.nodes[n]['pre_cell_id'], self.graph.nodes[n]['cell_type']) 
-                                                           for n in self.shuffle_nodes])
-
-        permutation = np.random.permutation(len(nodes_to_shuffle))
-        
-        random_tree = deepcopy(self)
-        for i, node in enumerate(nodes_to_shuffle):
-            random_tree.graph.nodes[node]['pre_cell_id'] = pre_cell_ids[permutation[i]]
-            random_tree.graph.nodes[node]['cell_type'] = cell_types[permutation[i]]
-
-        return random_tree
-
-    def get_type_shuffle(self):
-
-        nodes_to_shuffle, pre_cell_ids, cell_types = zip(*[(n, self.graph.nodes[n]['pre_cell_id'], self.graph.nodes[n]['cell_type']) 
-                                                           for n in self.shuffle_nodes])
-
-        synapses_by_type = {}
-        for cell_id, cell_type in zip(pre_cell_ids, cell_types):
-            if cell_type not in synapses_by_type:
-                synapses_by_type[cell_type] = []
-            synapses_by_type[cell_type].append(cell_id)
-
-        for cell_type in synapses_by_type:
-            np.random.shuffle(synapses_by_type[cell_type])
-        
-        random_tree = deepcopy(self)
-        for i, node in enumerate(nodes_to_shuffle):
-            random_tree.graph.nodes[node]['pre_cell_id'] = synapses_by_type[cell_types[i]].pop()
-
-        return random_tree
-
-    def get_axon_shuffle(self, score_mat):
-        nodes_to_shuffle, pre_cell_ids, cell_types = zip(*[(n, self.graph.nodes[n]['pre_cell_id'], self.graph.nodes[n]['cell_type']) 
-                                                           for n in self.shuffle_nodes])
-
-        if len(nodes_to_shuffle) != score_mat.shape[0]:
-            raise ValueError(f'Score matrix must have the same number of rows ({score_mat.shape[0]}) as shuffling-nodes in the tree ({len(nodes_to_shuffle)}).')
-        
-        random_tree = deepcopy(self)
-        permutation = BranchSeq.sample_permutation(np.array(score_mat).copy())
-        for i, node in enumerate(nodes_to_shuffle):
-            random_tree.graph.nodes[node]['pre_cell_id'] = pre_cell_ids[permutation[i]]
-            random_tree.graph.nodes[node]['cell_type'] = cell_types[permutation[i]]
-        
-        return random_tree
