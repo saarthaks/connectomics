@@ -53,6 +53,7 @@ def main(emst_path, verbose):
     chunk_size = 100
 
     cell_ids = list(og_msts_dict.keys())
+    N = len(cell_ids)
     # with open('./soma_missing.pkl', 'rb') as f:
     #     cell_ids = pickle.load(f)
 
@@ -63,7 +64,7 @@ def main(emst_path, verbose):
     all_trees = {}
     all_branches = {}
     # chunk cell_ids int cids by chunk_size and loop
-    for i in tqdm(range(starting_chunk, int(np.ceil(len(cell_ids)/chunk_size)))):
+    for i in tqdm(range(starting_chunk, int(np.ceil(N/chunk_size)))):
         cid = cell_ids[i*chunk_size:(i+1)*chunk_size]
         nrns = mi.fetch_neurons(cid, lod=3, with_synapses=False)
         sks = navis.skeletonize(nrns)
@@ -83,10 +84,10 @@ def main(emst_path, verbose):
             # get cell_df row whose pt_root_id == skel.id
             cell_df_row = cell_df[cell_df.pt_root_id == skel.id]
             # get position from columns pt_x, pt_y, pt_z, as np.array
-            root_pos = np.array(cell_df_row[['pt_x', 'pt_y', 'pt_z']].values[0]) * 1000
+            root_pos = np.array(cell_df_row[['pt_x', 'pt_y', 'pt_z']].values[0])
 
             # root_pos = skp.nodes.query('node_id == @skp.soma')[['x', 'y', 'z']].values.mean(axis=0)
-            RG.add_node(-1, pos=root_pos/1000)
+            RG.add_node(-1, pos=root_pos)
             for r in skp.root:
                 RG.add_edge(r, -1)
             G = filter_and_connect_graph(RG, set(node_ids))
