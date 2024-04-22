@@ -89,7 +89,6 @@ def main(data_path):
     chunk_size = 10
 
     cell_ids = list(cell_df['pt_root_id'].values)
-    cell_ids = cell_ids[::-1]
 
     starting_chunk = 0
     all_gmms = {}
@@ -98,13 +97,19 @@ def main(data_path):
     for i in tqdm(range(starting_chunk, int(np.ceil(len(cell_ids)/chunk_size)))):
         cid = cell_ids[i*chunk_size:(i+1)*chunk_size]
         gmms, axons = process_chunk(i, cid, vol, syn_df, data_path)
+
+        with open(os.path.join(data_path, 'gmms', f'gmms_{i}.pkl'), 'wb') as f:
+            pickle.dump(gmms, f)
+        with open(os.path.join(data_path, 'axons', f'axons_{i}.pkl'), 'wb') as f:
+            pickle.dump(axons, f)
+
         all_gmms.update(gmms)
         all_axons.update(axons)
 
-    with open(os.path.join(data_path, 'all_gmms.pkl'), 'wb') as f:
+    with open(os.path.join(data_path, 'gmms', 'all_gmms.pkl'), 'wb') as f:
         pickle.dump(all_gmms, f)
     
-    with open(os.path.join(data_path, 'all_axons.pkl'), 'wb') as f:
+    with open(os.path.join(data_path, 'axons', 'all_axons.pkl'), 'wb') as f:
         pickle.dump(all_axons, f)
     
 
