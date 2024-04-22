@@ -10,6 +10,28 @@ from scipy.sparse import csr_matrix
 class Skeleton:
 
     @staticmethod
+    def filter_and_connect_graph(original_graph, desired_nodes):
+        # Step 1: Initially, identify nodes with multiple parents and nodes to keep
+        nodes_with_multiple_children = {node for node in original_graph.nodes() if original_graph.out_degree(node) > 1}
+        nodes_to_keep = desired_nodes.union(nodes_with_multiple_children).union({-1})  # Include root node
+
+        # Create a copy of the graph to work on
+        G = original_graph.copy()
+
+        # Step 2: For nodes not in the keep list, redirect parents to children and remove the node
+        for node in list(G.nodes()):  # List conversion to avoid modification during iteration
+            if node not in nodes_to_keep:
+                parents = list(G.predecessors(node))
+                children = list(G.successors(node))
+                for parent in parents:
+                    for child in children:
+                        G.add_edge(parent, child)  # Connect parent directly to child
+                G.remove_node(node)  # Remove the node after re-connecting
+
+        assert -1 in G.nodes(), "Root node not found in the graph"
+        return G
+
+    @staticmethod
     def connect_disjoint_branches(G, soma_node=-1):
         G = deepcopy(G)
         G.remove_edges_from(list(nx.selfloop_edges(G)))
