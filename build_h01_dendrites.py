@@ -48,11 +48,13 @@ def main(data_path):
     
     chunk_size = 10
 
-    cell_ids = cell_df['pt_root_id'].values
+    # cell_ids = cell_df['pt_root_id'].values
+    with open('./missing_keys.pkl', 'rb') as f:
+        cell_ids = list(pickle.load(f))
     N = len(cell_ids)
 
-    starting_chunk = 270
-    cell_ids = cell_ids[starting_chunk*chunk_size:]
+    starting_chunk = 148
+    #cell_ids = cell_ids[starting_chunk*chunk_size:]
 
     # all_emsts = {}
     all_trees = {}
@@ -95,9 +97,9 @@ def main(data_path):
             branches[skp.id] = [BranchSeq(path, tree.graph, (cid, j)) for j, path in enumerate(tree.get_paths())]
 
 
-        with open(os.path.join(data_path, 'trees', f'trees_{i}.pkl'), 'wb') as f:
+        with open(os.path.join(data_path, 'trees3', f'trees_{i}.pkl'), 'wb') as f:
             pickle.dump(trees, f)
-        with open(os.path.join(data_path, 'branches', f'branches_{i}.pkl'), 'wb') as f:
+        with open(os.path.join(data_path, 'branches3', f'branches_{i}.pkl'), 'wb') as f:
             pickle.dump(branches, f)
 
         all_trees.update(trees)
@@ -106,10 +108,10 @@ def main(data_path):
     # with open(os.path.join(emst_path, 'all_emsts.pkl'), 'wb') as f:
     #     pickle.dump(all_emsts, f)
 
-    with open(os.path.join(data_path, 'trees', 'all_trees.pkl'), 'wb') as f:
+    with open(os.path.join(data_path, 'trees3', 'all_trees.pkl'), 'wb') as f:
         pickle.dump(all_trees, f)
     
-    with open(os.path.join(data_path, 'branches', 'all_branches.pkl'), 'wb') as f:
+    with open(os.path.join(data_path, 'branches3', 'all_branches.pkl'), 'wb') as f:
         pickle.dump(all_branches, f)
 
 

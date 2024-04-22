@@ -4,4 +4,8 @@ playground*
 *.h5
 theory*
 figures*
-
+tests/*
+*.pyc
+scripts
+paper_figures*
+core/__pycache__*

@@ -6,13 +6,13 @@ from collections import defaultdict
 import pylcs as LCS
 from tqdm import tqdm
 
-# from numba_stats import truncnorm
+from numba_stats import truncnorm
 
-# from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
-# import warnings
+from numba.core.errors import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
+import warnings
 
-# warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
-# warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaDeprecationWarning)
+warnings.simplefilter('ignore', category=NumbaPendingDeprecationWarning)
 
 class BranchSeq:
 
@@ -56,7 +56,18 @@ class BranchSeq:
 
         # 131072-173791: CJK Unified Ideographs Extension B
         coding_block_3 = np.arange(131072, 173792, 1)
-        code_points = np.concatenate([coding_block_1, coding_block_2, coding_block_3])
+
+        # Tangut
+        coding_block_4 = np.arange(94208, 101120, 1)
+        
+        # CJK Unified Ideographs Extension C - F
+        coding_block_5 = np.arange(173824, 191472, 1)
+
+        coding_block_6 = np.arange(13312, 19903, 1)
+
+        code_points = np.concatenate([coding_block_1, coding_block_2, coding_block_3, coding_block_4, coding_block_5, coding_block_6])
+        if len(code_points) < len(pt_root_ids):
+            raise ValueError('Too many pt_root_ids to encode: %d < %d' % (len(code_points), len(pt_root_ids)))
         
         pt_root_id_to_char = defaultdict(str)
         char_to_pt_root_id = defaultdict(int)

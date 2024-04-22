@@ -5,7 +5,6 @@ import networkx as nx
 from sklearn.neighbors import NearestNeighbors
 from scipy.sparse.csgraph import breadth_first_order
 from scipy.sparse import csr_matrix
-import pickle
 
 
 class Skeleton:
@@ -36,7 +35,7 @@ class Skeleton:
     
     @staticmethod
     def direct_tree_from_root(mst, soma_node=-1):
-        directed_tree = nx.DiGraph(cell_id=mst.graph['cell_id'], cell_type=mst.graph['cell_type'])
+        directed_tree = nx.DiGraph(cell_id=mst.graph.get('cell_id',None), cell_type=mst.graph.get('cell_type','Unknown'))
 
         # Copy node attributes
         for node, attrs in mst.nodes(data=True):
@@ -193,6 +192,62 @@ class Skeleton:
                 tree.remove_node(node)
 
         return tree
+    
+    @staticmethod
+    def skeleton_from_points(soma_xyz, synapses_dict, syn_k, soma_k):
+
+        syn_k = min(syn_k, len(synapses_dict))
+        soma_k = min(soma_k, len(synapses_dict))
+
+        nodes = [n for n in synapses_dict.keys() if n != -1]
+        # extract 'pos' attribute from each (node_id, node_attr_dit) in synapses_dict
+        synapses = np.array([synapses_dict[node]['pos'].squeeze() for node in nodes])
+
+        # add soma_xyz to last row of synapses numpy array (N, 3) -> (N+1, 3)
+        synapses_w_soma = np.vstack([synapses, soma_xyz])
+
+        # Create a kdtree from the synapse locations
+        kd_tree = NearestNeighbors(n_neighbors=syn_k, algorithm='kd_tree').fit(synapses_w_soma)
+
+        # Get the k nearest neighbors for each synapse and the soma
+        distances, indices = kd_tree.kneighbors(synapses)
+        soma_distances, soma_indices = kd_tree.kneighbors(soma_xyz.reshape(1, -1), n_neighbors=soma_k)
+
+        # Subtract the "radius" of the soma from the soma distances
+        if soma_distances.shape[1] > 1:
+            soma_radius = soma_distances[0][1]
+        else:
+            soma_radius = 3
+        soma_distances = soma_distances - soma_radius 
+
+        G = nx.Graph()
+        for i, node in enumerate(nodes):
+            G.add_node(node, pos=synapses[i])
+        nodes.append(-1)
+        G.add_node(-1, pos=soma_xyz)
+
+        # Add edges according to the kdtree
+        for i in range(len(indices)):
+            syn_id = nodes[i]
+            for j in range(len(indices[i])):
+                if i != indices[i][j]:
+                    G.add_edge(syn_id, nodes[indices[i][j]], weight=distances[i][j])
+        
+        # Add edges from the soma to its nearest neighbors, corrected for the radius of the soma
+        # Make sure not to add an edge from the soma to itself
+        for l in range(1,len(soma_indices[0])):
+            G.add_edge(-1, nodes[soma_indices[0][l]], weight=soma_distances[0][l])
+
+        # Get the minimum spanning tree
+        mst = nx.minimum_spanning_tree(G)
+
+        # Make the graph fully connected
+        mst = Skeleton.connect_disjoint_branches(mst)
+
+        # Direct the tree from the soma
+        mst = Skeleton.direct_tree_from_root(mst, soma_node=-1)
+
+        return mst
     
     @staticmethod
     def extract_paths_from_graph(graph, duplicate_tail=False, navis_reverse=False):

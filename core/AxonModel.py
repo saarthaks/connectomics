@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.mixture import GaussianMixture
+from collections import defaultdict
 from tqdm import tqdm
 from .Skeleton import Skeleton
 
@@ -18,6 +19,34 @@ class AxonModel(Skeleton):
             score_dict[branch.branch_id] = branch_scores
         
         return score_dict
+    
+    @staticmethod
+    def get_total_length(mst):
+        '''Measure the total length of every edge in the MST
+        using the Euclidean distance between the node[i]['pos'] and node[j]['pos']'''
+        total_length = 0
+        for i, j in mst.edges():
+            total_length += np.linalg.norm(mst.nodes[i]['pos'] - mst.nodes[j]['pos'])
+        return total_length
+    
+    @staticmethod
+    def rebuild_axons_from_branches(branches, axons_dict):
+        new_axons_dict = {}
+        for pre_cell_id in tqdm(axons_dict):
+            new_axons_dict[pre_cell_id] = axons_dict[pre_cell_id].copy()
+
+        for post_cell_id in tqdm(branches):
+            for branch in branches[post_cell_id]:
+                for precell, syn_id, syn_pos in zip(branch.cell_id_sequence['collapsed'], branch.syn_id_sequence['collapsed'], branch.syn_pos_sequence['collapsed']):
+                    new_axons_dict[precell].nodes[syn_id].update({'pos': syn_pos})
+
+        for pre_cell_id, old_mst in tqdm(new_axons_dict.items()):
+            node_dict = dict(old_mst.nodes(data=True))
+            soma_xyz = old_mst.nodes[-1]['pos'].squeeze()
+            new_mst = Skeleton.skeleton_from_points(soma_xyz, node_dict, syn_k=8, soma_k=8)
+            new_axons_dict[pre_cell_id] = new_mst
+        
+        return new_axons_dict
 
     def __init__(self, cell_info, syn_group, syn_k=8, soma_k=8, twig_length=4, single_syn_std=5):
         self.single_syn_std = single_syn_std
