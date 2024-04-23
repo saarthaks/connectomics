@@ -46,7 +46,7 @@ def process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path):
 
     # get all meshes in parallel, then skeletonize in parallel
     nrns = vol.mesh.get(cid, as_navis=True)
-    nrns = navis.simplify_mesh(nrns, F=1/3, parallel=True)
+    nrns = navis.simplify_mesh(nrns, F=1/2, parallel=True)
     sks = navis.skeletonize(nrns, parallel=True)
     sks = navis.prune_twigs(sks, 6000, parallel=True)
 
