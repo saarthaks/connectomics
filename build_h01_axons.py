@@ -7,6 +7,7 @@ import cloudvolume as cv
 import numpy as np
 import networkx as nx
 from tqdm import tqdm
+from collections import Counter
 from sklearn.mixture import GaussianMixture
 
 from core.Skeleton import Skeleton
@@ -41,11 +42,11 @@ def fit_gmm(paths, skp, min_path_length=4, single_syn_std=1):
     gmm.fit(all_positions)
     return gmm
 
-def process_chunk(i, cid, vol, syn_df, data_path):
+def process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path):
 
     # get all meshes in parallel, then skeletonize in parallel
     nrns = vol.mesh.get(cid, as_navis=True)
-    nrns = navis.simplify_mesh(nrns, F=1/3, parallel=True)
+    nrns = navis.simplify_mesh(nrns, F=1/2, parallel=True)
     sks = navis.skeletonize(nrns, parallel=True)
     sks = navis.prune_twigs(sks, 6000, parallel=True)
 
@@ -62,6 +63,15 @@ def process_chunk(i, cid, vol, syn_df, data_path):
         root_pos = np.array(skp.nodes.iloc[skp.root][['x', 'y', 'z']].values[0] / 1000)
         all_node_positions = np.array(skp.nodes[['x', 'y', 'z']].values) / 1000
         all_node_ids = skp.nodes['node_id'].values
+        
+        all_layer_ids = []
+        for n in all_node_positions:
+            for i, n_layer in enumerate(layer_vol_list):
+                if n_layer.contains([n*1000]):
+                    all_layer_ids.append(i+1)  # Adjusted for 1-based indexing
+                    break
+        layer_counter = Counter(all_layer_ids)
+        most_common_layer = layer_counter.most_common(1)[0]
 
         RG.add_node(-1, pos=root_pos)
         for r in skp.root:
@@ -69,6 +79,8 @@ def process_chunk(i, cid, vol, syn_df, data_path):
         G = Skeleton.filter_and_connect_graph(RG, set(node_ids))
         nx.set_node_attributes(G, dict(zip(node_ids, syn_ids)), 'syn_ids')
         nx.set_node_attributes(G, dict(zip(all_node_ids, all_node_positions)), 'pos')
+        G.graph['layer_id'] = most_common_layer[0]
+
 
         # get all segments that contain at least one outgoing synapse
         axon_paths = [path for path in skp.small_segments if len(set(node_ids).intersection(path)) > 0]
@@ -83,6 +95,10 @@ def main(data_path):
     navis.patch_cloudvolume()
     vol = cv.CloudVolume('precomputed://gs://h01-release/data/20210601/c3', use_https=True, progress=True, parallel=True)
 
+    layer_vol = cv.CloudVolume('precomputed://gs://h01-release/data/20210601/layers', use_https=True, progress=False)
+    layer_vol_list = [layer_vol.mesh.get(i, as_navis=True) for i in range(1, 8)]
+    layer_vol_list = [navis.Volume.from_object(layer.trimesh[0]) for layer in layer_vol_list]
+
     syn_df = pd.read_csv('./data/syn_df.csv')    
     cell_df = pd.read_csv('./data/pre_ids.csv')
 
@@ -96,7 +112,7 @@ def main(data_path):
     # chunk cell_ids int cids by chunk_size and loop
     for i in tqdm(range(starting_chunk, int(np.ceil(len(cell_ids)/chunk_size)))):
         cid = cell_ids[i*chunk_size:(i+1)*chunk_size]
-        gmms, axons = process_chunk(i, cid, vol, syn_df, data_path)
+        gmms, axons = process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path)
 
         with open(os.path.join(data_path, 'gmms', f'gmms_{i}.pkl'), 'wb') as f:
             pickle.dump(gmms, f)
