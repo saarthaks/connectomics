@@ -66,7 +66,7 @@ def process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path):
         all_layer_ids = []
         for n in all_node_positions:
             for i, n_layer in enumerate(layer_vol_list):
-                if n_layer.contains([n]):
+                if n_layer.contains([n*1000]):
                     all_layer_ids.append(i+1)  # Adjusted for 1-based indexing
                     break
 
