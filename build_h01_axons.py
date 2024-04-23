@@ -62,11 +62,13 @@ def process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path):
         root_pos = np.array(skp.nodes.iloc[skp.root][['x', 'y', 'z']].values[0] / 1000)
         all_node_positions = np.array(skp.nodes[['x', 'y', 'z']].values) / 1000
         all_node_ids = skp.nodes['node_id'].values
-
-        for i, n_layer in enumerate(layer_vol_list):
-            if n_layer.contains(all_node_positions):
-                layer = i + 1  # Adjusted for 1-based indexing
-                break
+        
+        all_layer_ids = []
+        for n in all_node_positions:
+            for i, n_layer in enumerate(layer_vol_list):
+                if n_layer.contains([n]):
+                    all_layer_ids.append(i+1)  # Adjusted for 1-based indexing
+                    break
 
         RG.add_node(-1, pos=root_pos)
         for r in skp.root:
@@ -74,7 +76,7 @@ def process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path):
         G = Skeleton.filter_and_connect_graph(RG, set(node_ids))
         nx.set_node_attributes(G, dict(zip(node_ids, syn_ids)), 'syn_ids')
         nx.set_node_attributes(G, dict(zip(all_node_ids, all_node_positions)), 'pos')
-        nx.set_node_attributes(G, dict(zip(all_node_ids, layer)), 'layer')
+        nx.set_node_attributes(G, dict(zip(all_node_ids, all_layer_ids)), 'layer')
 
 
         # get all segments that contain at least one outgoing synapse
