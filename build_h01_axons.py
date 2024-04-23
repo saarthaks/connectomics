@@ -7,6 +7,7 @@ import cloudvolume as cv
 import numpy as np
 import networkx as nx
 from tqdm import tqdm
+from collections import Counter
 from sklearn.mixture import GaussianMixture
 
 from core.Skeleton import Skeleton
@@ -69,6 +70,8 @@ def process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path):
                 if n_layer.contains([n*1000]):
                     all_layer_ids.append(i+1)  # Adjusted for 1-based indexing
                     break
+        layer_counter = Counter(all_layer_ids)
+        most_common_layer = layer_counter.most_common(1)[0]
 
         RG.add_node(-1, pos=root_pos)
         for r in skp.root:
@@ -76,7 +79,7 @@ def process_chunk(layer_vol_list, i, cid, vol, syn_df, data_path):
         G = Skeleton.filter_and_connect_graph(RG, set(node_ids))
         nx.set_node_attributes(G, dict(zip(node_ids, syn_ids)), 'syn_ids')
         nx.set_node_attributes(G, dict(zip(all_node_ids, all_node_positions)), 'pos')
-        nx.set_node_attributes(G, dict(zip(all_node_ids, all_layer_ids)), 'layer')
+        G.graph['layer_id'] = most_common_layer[0]
 
 
         # get all segments that contain at least one outgoing synapse
