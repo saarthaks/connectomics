@@ -45,3 +45,11 @@ def load_branches_dict(neuron_ids, datapath='/drive_sdc/ssarup/flywire_data/all_
         if branch is not None:
             branches[neuron_id] = branch
     return branches
+
+def get_pre_ids(branches):
+    pre_ids = set()
+    for neuron_id, branch_list in branches.items():
+        for branch in branch_list:
+            for node in branch.node_dict.values():
+                pre_ids.update(node['pre_cell_id'])
+    return list(pre_ids)

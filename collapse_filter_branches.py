@@ -4,13 +4,12 @@ import os
 import json
 from collections import defaultdict
 from tqdm import tqdm
+import pandas as pd
 
+from core.flywire_utils import *
 from core.GenericBranch import GenericBranchSeq
 
-def main(branches_path, output_path, filter_dict, min_intersection=3, verbose=False):
-    
-    with open(branches_path, 'rb') as f:
-        all_branches = pickle.load(f)
+def main(all_branches, output_path, filter_dict, min_intersection=3, verbose=False):
     
     if verbose:
         print('Done loading branches.')
@@ -52,15 +51,27 @@ def main(branches_path, output_path, filter_dict, min_intersection=3, verbose=Fa
         
 if __name__ == '__main__':
 
-    branches_path = '/drive_sdc/ssarup/flywire_data/mushroom_body/mb_branches.pkl'
-    output_path = '/drive_sdc/ssarup/flywire_data/mushroom_body/dopamine'
-    min_intersection = 3
-    verbose = True
+    neuron_annotation = pd.read_csv('./neuron_annotation.tsv', sep='\t')
 
+    base = '/drive_sdc/ssarup/flywire_data'
+    region = 'olfactory'
+    os.makedirs(os.path.join(base, region), exist_ok=True)
+
+    cell_ids = neuron_annotation[neuron_annotation['cell_class'] == 'olfactory']['root_id'].values
+    branches = load_branches_dict(cell_ids)
+    pre_ids = get_pre_ids(branches)
+    pre_ids_df = neuron_annotation[neuron_annotation['root_id'].isin(pre_ids)]
+    pre_ids_df.to_csv(os.path.join(base, region, 'pre_ids.csv'), index=False)
+
+    experiment_name = 'dopamine'
     filter_dict = {
         'top_nts': ['dopamine'],
     }
+    min_intersection = 3
+    verbose = True
+    output_path = os.path.join(base, region, experiment_name)
+    os.makedirs(output_path, exist_ok=True)
 
-    main(branches_path, output_path, filter_dict,
+    main(branches, output_path, filter_dict,
          min_intersection=min_intersection, 
          verbose=verbose)

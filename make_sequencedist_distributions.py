@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from core.plotting import *
 
-def main(trial_path, figures_path, basal, shuffle_types, pdf, cdf, xlim, transparent, stats, verbose):
+def main(trial_path, figures_path, shuffle_types, xlim, pdf, cdf, basal=False, transparent=False, stats=False, verbose=False):
     
     with open(os.path.join(trial_path, 'original', 'trial_0_dists.pkl'), 'rb') as f:
         all_dists = pickle.load(f)
@@ -80,5 +80,6 @@ if __name__ == '__main__':
         shuffle_types.append('continuous')
 
     xlim = [args.xmin, args.xmax]
-    main(args.trial_path, args.figures_path, args.basal, shuffle_types, 
-         args.pdf, args.cdf, xlim, args.transparent, args.stats, args.verbose)
+    main(args.trial_path, args.figures_path, shuffle_types, xlim, 
+         args.pdf, args.cdf, basal=args.basal, transparent=args.transparent, 
+         stats=args.stats, verbose=args.verbose)
